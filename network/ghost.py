@@ -22,8 +22,10 @@ class GhostSwap(LightningModule):
         discriminator_lr: float,
         betas: tuple[float, float] = (0, 0.999),
         weight_decay: float = 1e-4,
+        use_scheduler: bool = False,
         scheduler_step: int = 5000,
         scheduler_gamma: float = 0.2,
+        use_eye_detector_loss: bool = False,
     ) -> None:
         """Initialize the model"""
         super().__init__()
@@ -43,23 +45,26 @@ class GhostSwap(LightningModule):
         self.betas = betas
         self.weight_decay = weight_decay
 
+        self.use_scheduler = use_scheduler
         self.scheduler_step = scheduler_step
         self.scheduler_gamma = scheduler_gamma
 
         # Define loss
-        self.eye_detector = FAN(4, "False", "False", 98)
-        checkpoint = torch.load(fan_path)
-        if "state_dict" not in checkpoint:
-            self.eye_detector.load_state_dict(checkpoint)
-        else:
-            pretrained_weights = checkpoint["state_dict"]
-            model_weights = self.eye_detector.state_dict()
-            pretrained_weights = {
-                k: v for k, v in pretrained_weights.items() if k in model_weights
-            }
-            model_weights.update(pretrained_weights)
-            self.eye_detector.load_state_dict(model_weights)
-        self.eye_detector.eval()
+        self.use_eye_detector_loss = use_eye_detector_loss
+        if self.use_eye_detector_loss:
+            self.eye_detector = FAN(4, "False", "False", 98)
+            checkpoint = torch.load(fan_path)
+            if "state_dict" not in checkpoint:
+                self.eye_detector.load_state_dict(checkpoint)
+            else:
+                pretrained_weights = checkpoint["state_dict"]
+                model_weights = self.eye_detector.state_dict()
+                pretrained_weights = {
+                    k: v for k, v in pretrained_weights.items() if k in model_weights
+                }
+                model_weights.update(pretrained_weights)
+                self.eye_detector.load_state_dict(model_weights)
+            self.eye_detector.eval()
 
     def forward(
         self, X: torch.Tensor, z_id: torch.Tensor
@@ -187,14 +192,17 @@ class GhostSwap(LightningModule):
         Di = self.discriminator(Y)
         ZY = self.embed_face(Y)
 
-        Xt_eyes, Xt_heatmap_left, Xt_heatmap_right = self.detect_landmarks(Xt)
-        Y_eyes, Y_heatmap_left, Y_heatmap_right = self.detect_landmarks(Y)
-        eye_heatmaps = [
-            Xt_heatmap_left,
-            Xt_heatmap_right,
-            Y_heatmap_left,
-            Y_heatmap_right,
-        ]
+        if self.use_eye_detector_loss:
+            Xt_eyes, Xt_heatmap_left, Xt_heatmap_right = self.detect_landmarks(Xt)
+            Y_eyes, Y_heatmap_left, Y_heatmap_right = self.detect_landmarks(Y)
+            eye_heatmaps = [
+                Xt_heatmap_left,
+                Xt_heatmap_right,
+                Y_heatmap_left,
+                Y_heatmap_right,
+            ]
+        else:
+            eye_heatmaps = None
 
         lossG, loss_adv_accumulated, L_adv, L_attr, L_id, L_rec, L_l2_eyes = (
             compute_generator_losses(
@@ -249,6 +257,9 @@ class GhostSwap(LightningModule):
             betas=self.betas,
             weight_decay=self.weight_decay,
         )
+        if not self.use_scheduler:
+            return [optimizer_G, optimizer_D]
+
         scheduler_G = StepLR(
             optimizer_G, step_size=self.scheduler_step, gamma=self.scheduler_gamma
         )
