@@ -55,9 +55,9 @@ class AddBlocksSequential(nn.Sequential):
         return inputs
 
 
-class AAD_ResBlk(nn.Module):
-    def __init__(self, cin, cout, c_attr, c_id, num_blocks):
-        super(AAD_ResBlk, self).__init__()
+class AADResBlock(nn.Module):
+    def __init__(self, cin, cout, c_attr, c_id, num_blocks) -> None:
+        super().__init__()
         self.cin = cin
         self.cout = cout
 

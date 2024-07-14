@@ -21,8 +21,7 @@ from AdaptiveWingLoss.core import models
 from arcface_model.iresnet import iresnet100
 
 from apex import amp
-from network.AEI_Net import *
-from network.MultiscaleDiscriminator import *
+from network import AEI_Net, MultiscaleDiscriminator
 from utils.training.Dataset import FaceEmbed, FaceEmbedVGG2
 from utils.training.detector import detect_landmarks, paint_eyes
 from utils.training.image_processing import get_faceswap, make_image_list

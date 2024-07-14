@@ -45,8 +45,8 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
-        super(Bottleneck, self).__init__()
+    def __init__(self, inplanes, planes, stride=1, downsample=None) -> None:
+        super().__init__()
         self.conv1 = nn.Conv2d(
             inplanes, planes, kernel_size=1, stride=stride, bias=False
         )
@@ -84,12 +84,10 @@ class Bottleneck(nn.Module):
         return out
 
 
-class ResNet(nn.Module):
-
-    def __init__(self, block, layers, num_classes=1000, include_top=True):
+class MLAttrEncoderResnet(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
         self.inplanes = 64
-        super(ResNet, self).__init__()
-        self.include_top = include_top
 
         self.conv0 = nn.Conv2d(3, 64, kernel_size=7, stride=1, padding=3, bias=False)
         self.bn0 = nn.BatchNorm2d(64)
@@ -99,12 +97,13 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
 
-        self.layer1 = self._make_layer(block, 32, layers[0], stride=2)
-        self.layer2 = self._make_layer(block, 64, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 128, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 256, layers[3], stride=2)
-        self.layer5 = self._make_layer(block, 512, layers[4], stride=2)
-        self.layer6 = self._make_layer(block, 256, layers[5], stride=2)
+        layers = [2, 2, 2, 2, 2, 2]
+        self.layer1 = self._make_layer(Bottleneck, 32, layers[0], stride=2)
+        self.layer2 = self._make_layer(Bottleneck, 64, layers[1], stride=2)
+        self.layer3 = self._make_layer(Bottleneck, 128, layers[2], stride=2)
+        self.layer4 = self._make_layer(Bottleneck, 256, layers[3], stride=2)
+        self.layer5 = self._make_layer(Bottleneck, 512, layers[4], stride=2)
+        self.layer6 = self._make_layer(Bottleneck, 256, layers[5], stride=2)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -153,8 +152,3 @@ class ResNet(nn.Module):
         x7 = self.layer6(x6)
 
         return x7, x6, x5, x4, x3, x2, x1, x0
-
-
-def MLAttrEncoderResnet(**kwargs):
-    model = ResNet(Bottleneck, [2, 2, 2, 2, 2, 2], **kwargs)
-    return model
