@@ -25,7 +25,6 @@ class AddCoordsTh(nn.Module):
         xx_channel = torch.matmul(xx_ones.float(), xx_range.float())
         xx_channel = xx_channel.unsqueeze(-1)
 
-
         yy_ones = torch.ones([1, self.x_dim], dtype=torch.int32).cuda()
         yy_ones = yy_ones.unsqueeze(1)
 
@@ -48,19 +47,19 @@ class AddCoordsTh(nn.Module):
         yy_channel = yy_channel.repeat(batch_size_tensor, 1, 1, 1)
 
         if self.with_boundary and type(heatmap) != type(None):
-            boundary_channel = torch.clamp(heatmap[:, -1:, :, :],
-                                        0.0, 1.0)
+            boundary_channel = torch.clamp(heatmap[:, -1:, :, :], 0.0, 1.0)
 
             zero_tensor = torch.zeros_like(xx_channel)
-            xx_boundary_channel = torch.where(boundary_channel>0.05,
-                                              xx_channel, zero_tensor)
-            yy_boundary_channel = torch.where(boundary_channel>0.05,
-                                              yy_channel, zero_tensor)
+            xx_boundary_channel = torch.where(
+                boundary_channel > 0.05, xx_channel, zero_tensor
+            )
+            yy_boundary_channel = torch.where(
+                boundary_channel > 0.05, yy_channel, zero_tensor
+            )
         if self.with_boundary and type(heatmap) != type(None):
             xx_boundary_channel = xx_boundary_channel.cuda()
             yy_boundary_channel = yy_boundary_channel.cuda()
         ret = torch.cat([input_tensor, xx_channel, yy_channel], dim=1)
-
 
         if self.with_r:
             rr = torch.sqrt(torch.pow(xx_channel, 2) + torch.pow(yy_channel, 2))
@@ -68,18 +67,28 @@ class AddCoordsTh(nn.Module):
             ret = torch.cat([ret, rr], dim=1)
 
         if self.with_boundary and type(heatmap) != type(None):
-            ret = torch.cat([ret, xx_boundary_channel,
-                             yy_boundary_channel], dim=1)
+            ret = torch.cat([ret, xx_boundary_channel, yy_boundary_channel], dim=1)
         return ret
 
 
 class CoordConvTh(nn.Module):
     """CoordConv layer as in the paper."""
-    def __init__(self, x_dim, y_dim, with_r, with_boundary,
-                 in_channels, first_one=False, *args, **kwargs):
+
+    def __init__(
+        self,
+        x_dim,
+        y_dim,
+        with_r,
+        with_boundary,
+        in_channels,
+        first_one=False,
+        *args,
+        **kwargs
+    ):
         super(CoordConvTh, self).__init__()
-        self.addcoords = AddCoordsTh(x_dim=x_dim, y_dim=y_dim, with_r=with_r,
-                                    with_boundary=with_boundary)
+        self.addcoords = AddCoordsTh(
+            x_dim=x_dim, y_dim=y_dim, with_r=with_r, with_boundary=with_boundary
+        )
         in_channels += 2
         if with_r:
             in_channels += 1
