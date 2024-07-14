@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from ...utils import weight_init
+from ..utils import weight_init
 from .aad_res_block import AADResBlock
 
 
