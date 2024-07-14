@@ -1,222 +1,325 @@
-import argparse
 import os
 import time
+from typing import Literal, Sequence
 
 import cv2
+import numpy as np
 import torch
-from arcface_model.iresnet import iresnet100
 
-from coordinate_reg.image_infer import Handler
-from insightface_func.face_detect_crop_multi import Face_detect_crop
+from arcface_model.iresnet import IResNet, iresnet100
 from models.config_sr import TestOptions
 from models.pix2pix_model import Pix2PixModel
 from network.AEI_Net import AEI_Net
 from utils.inference.core import model_inference
-from utils.inference.image_processing import crop_face, get_final_image
+from utils.inference.face_detector import FaceDetector
+from utils.inference.image_processing import get_final_image
 from utils.inference.video_processing import (
     add_audio_from_another_video,
     face_enhancement,
     get_final_video,
-    get_target,
     read_video,
 )
 
 
-def init_models(args):
-    # model for face cropping
-    app = Face_detect_crop(name="antelope", root="./insightface_func/models")
-    app.prepare(ctx_id=0, det_thresh=0.6, det_size=(640, 640))
-
-    # main model for generation
-    G = AEI_Net(args.backbone, num_blocks=args.num_blocks, c_id=512)
+def load_aei_net(
+    G_path: str = "weights/G_unet_2blocks.pth",
+    backbone: str = "unet",
+    num_blocks: int = 2,
+) -> AEI_Net:
+    G = AEI_Net(backbone, num_blocks=num_blocks, c_id=512)
     G.eval()
-    G.load_state_dict(torch.load(args.G_path, map_location=torch.device("cpu")))
-    G = G.cuda()
-    G = G.half()
+    G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
+    return G
 
-    # arcface model to get face embedding
+
+def load_arcface_model(path: str = "arcface_model/backbone.pth") -> IResNet:
     netArc = iresnet100(fp16=False)
-    netArc.load_state_dict(torch.load("arcface_model/backbone.pth"))
-    netArc = netArc.cuda()
+    netArc.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
     netArc.eval()
+    return netArc
 
-    # model to get face landmarks
-    handler = Handler("./coordinate_reg/model/2d106det", 0, ctx_id=0, det_size=640)
 
-    # model to make superres of face, set use_sr=True if you want to use super resolution or use_sr=False if you don't
-    if args.use_sr:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        torch.backends.cudnn.benchmark = True
+def find_first_face_in_frames(
+    face_detector: FaceDetector, frames: Sequence[np.ndarray]
+) -> np.ndarray | None:
+    """Find the first face in a list of frames."""
+    for frame in frames:
+        landmarks = face_detector.get_landmarks(frame)
+        if len(landmarks) > 0:
+            # Face(s) found in frame.
+            if len(landmarks) > 1:
+                print("Multiple faces found in the input frames, using the first face")
+            landmark = landmarks[0]
+            face = face_detector.align(frame, landmark=landmark)
+            return face
+    return None
+
+
+def inference(
+    source_paths: Sequence[str],
+    target_paths: Sequence[str],
+    frames: Sequence[np.ndarray],
+    batch_size: int,
+    apply_super_resolution: bool,
+    similarity_threshold: float,
+    device: Literal["cpu", "cuda", "mps"] = "cpu",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    # Check if all source images are valid.
+    invalid_paths = []
+    for source_path in source_paths:
+        if not os.path.exists(source_path):
+            invalid_paths.append(source_path)
+    # Raise error if all source images are invalid.
+    if len(invalid_paths) == len(source_paths):
+        invalid_paths_string = "\n- ".join(source_paths)
+        raise FileNotFoundError(
+            f"None of the source images exist. Invalid paths:\n- {invalid_paths_string}"
+        )
+    elif invalid_paths:
+        invalid_paths_string = "\n- ".join(invalid_paths)
+        print(
+            f"Some source images do not exist. Invalid paths:\n- {invalid_paths_string}"
+        )
+    else:
+        print(f"Source images are valid. Found: {len(source_paths)} images")
+
+    # Initialize face detector
+    face_detector = FaceDetector(device=device)
+
+    ######################
+    # Load source images #
+    ######################
+
+    source_images: list[np.ndarray] = []
+    for source_path in source_paths:
+        # Open image.
+        image = cv2.imread(source_path)
+        # Warn if image is invalid.
+        if image is None:
+            print(f"Bad source image: {source_path}")
+            continue
+        # Convert image to RGB.
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Align face in image.
+        landmarks = face_detector.get_landmarks(image)
+        if len(landmarks) == 0:
+            print(f"No face found in {source_path}")
+            continue
+        elif len(landmarks) > 1:
+            print(f"Multiple faces found in {source_path}, using the first face")
+        aligned_image = face_detector.align(image, landmark=landmarks[0])
+        source_images.append(aligned_image)
+
+    # Raise error if no valid source images are found.
+    if not source_images:
+        raise ValueError("None of the source images have a face or are valid")
+    else:
+        print("Source images loaded")
+
+    ######################
+    # Load target images #
+    ######################
+
+    # Load target images if provided.
+    target_images: list[np.ndarray] = []
+    auto_target = (
+        False  # Flag to indicate that the target face is automatically selected.
+    )
+    if target_paths:
+        for target_path in target_paths:
+            # Open image.
+            image = cv2.imread(target_path)
+            if image is None:
+                print(f"Bad target image: {target_path}")
+                continue
+            # Convert image to RGB.
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # Align face in image.
+            landmarks = face_detector.get_landmarks(image)
+            if len(landmarks) == 0:
+                print(f"No face found in {target_path}")
+                continue
+            elif len(landmarks) > 1:
+                print(f"Multiple faces found in {target_path}, using the first face")
+            aligned_image = face_detector.align(image, landmark=landmarks[0])
+            target_images.append(target_images)
+
+        # Raise error if no valid target images are found.
+        if not target_images:
+            raise ValueError("None of the target images have a face or are valid")
+        else:
+            print("Target images loaded")
+
+    # Automatically find the first face in the target video as the target if no target images are provided.
+    else:
+        auto_target = True
+        target = find_first_face_in_frames(face_detector, frames)
+        # Raise error if no face is found in the target video.
+        if target is None:
+            raise ValueError("No face found in the input frames")
+        target_images.append(target)
+        print("Target face found in the input frames")
+
+    ###############
+    # Inferencing #
+    ###############
+
+    arcface_net = load_arcface_model()
+    aei_net = load_aei_net()
+
+    final_frames, crop_frames, full_frames, transform_arrays = model_inference(
+        frames,
+        source_images,
+        target_images,
+        arcface_net,
+        aei_net,
+        face_detector,
+        not auto_target,
+        similarity_th=similarity_threshold,
+        batch_size=batch_size,
+    )
+    if apply_super_resolution:
+        print("Applying super resolution to the final result")
         opt = TestOptions()
-        # opt.which_epoch ='10_7'
         model = Pix2PixModel(opt)
         model.netG.train()
-    else:
-        model = None
+        final_frames = face_enhancement(final_frames, model)
 
-    return app, G, netArc, handler, model
-
-
-def main(args):
-    app, G, netArc, handler, model = init_models(args)
-
-    # get crops from source images
-    print("List of source paths: ", args.source_paths)
-    source = []
-    try:
-        for source_path in args.source_paths:
-            img = cv2.imread(source_path)
-            img = crop_face(img, app, args.crop_size)[0]
-            source.append(img[:, :, ::-1])
-    except TypeError:
-        print("Bad source images!")
-        exit()
-
-    # get full frames from video
-    if not args.image_to_image:
-        full_frames, fps = read_video(args.target_video)
-    else:
-        target_full = cv2.imread(args.target_image)
-        full_frames = [target_full]
-
-    # get target faces that are used for swap
-    set_target = True
-    print("List of target paths: ", args.target_faces_paths)
-    if not args.target_faces_paths:
-        target = get_target(full_frames, app, args.crop_size)
-        set_target = False
-    else:
-        target = []
-        try:
-            for target_faces_path in args.target_faces_paths:
-                img = cv2.imread(target_faces_path)
-                img = crop_face(img, app, args.crop_size)[0]
-                target.append(img)
-        except TypeError:
-            print("Bad target images!")
-            exit()
-
-    start = time.time()
-    final_frames_list, crop_frames_list, full_frames, tfm_array_list = model_inference(
-        full_frames,
-        source,
-        target,
-        netArc,
-        G,
-        app,
-        set_target,
-        similarity_th=args.similarity_th,
-        crop_size=args.crop_size,
-        BS=args.batch_size,
-    )
-    if args.use_sr:
-        final_frames_list = face_enhancement(final_frames_list, model)
-
-    if not args.image_to_image:
-        get_final_video(
-            final_frames_list,
-            crop_frames_list,
-            full_frames,
-            tfm_array_list,
-            args.out_video_name,
-            fps,
-            handler,
-        )
-
-        add_audio_from_another_video(args.target_video, args.out_video_name, "audio")
-        print(f"Video saved with path {args.out_video_name}")
-    else:
-        result = get_final_image(
-            final_frames_list, crop_frames_list, full_frames[0], tfm_array_list, handler
-        )
-        cv2.imwrite(args.out_image_name, result)
-        print(f"Swapped Image saved with path {args.out_image_name}")
-
-    print("Total time: ", time.time() - start)
+    return final_frames, crop_frames, full_frames, transform_arrays
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
-    # Generator params
-    parser.add_argument(
-        "--G_path",
-        default="weights/G_unet_2blocks.pth",
-        type=str,
-        help="Path to weights for G",
-    )
-    parser.add_argument(
-        "--backbone",
-        default="unet",
-        const="unet",
-        nargs="?",
-        choices=["unet", "linknet", "resnet"],
-        help="Backbone for attribute encoder",
-    )
-    parser.add_argument(
-        "--num_blocks", default=2, type=int, help="Numbers of AddBlocks at AddResblock"
+    parser = ArgumentParser(
+        description="Swap faces from source image to target image or video",
+        formatter_class=ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument("--batch_size", default=40, type=int)
-    parser.add_argument("--crop_size", default=224, type=int, help="Don't change this")
     parser.add_argument(
-        "--use_sr",
-        default=False,
-        type=bool,
-        help="True for super resolution on swap images",
+        "-i",
+        "--source_paths",
+        required=True,
+        nargs="+",
+        help="Path to the source image(s) to swap the face from",
     )
     parser.add_argument(
-        "--similarity_th",
+        "-r",
+        "--reference_target_paths",
+        default=None,
+        nargs="+",
+        help="Path to the reference target image(s) to detect which face to place the source face on",
+    )
+    parser.add_argument(
+        "--batch_size", default=40, type=int, help="Batch size for inference"
+    )
+    parser.add_argument(
+        "-s",
+        "--similarity_threshold",
         default=0.15,
         type=float,
         help="Threshold for selecting a face similar to the target",
     )
-
     parser.add_argument(
-        "--source_paths",
-        default=["examples/images/mark.jpg", "examples/images/elon_musk.jpg"],
-        nargs="+",
+        "-sr",
+        "--super_resolution",
+        action="store_true",
+        help="Apply super resolution to the final result",
     )
     parser.add_argument(
-        "--target_faces_paths",
-        default=[],
-        nargs="+",
-        help="It's necessary to set the face/faces in the video to which the source face/faces is swapped. You can skip this parametr, and then any face is selected in the target video for swap.",
+        "-d", "--device", default="cpu", type=str, help="Device to run the model on"
     )
 
-    # parameters for image to video
-    parser.add_argument(
-        "--target_video",
-        default="examples/videos/nggyup.mp4",
-        type=str,
-        help="It's necessary for image to video swap",
-    )
-    parser.add_argument(
-        "--out_video_name",
-        default="examples/results/result.mp4",
-        type=str,
-        help="It's necessary for image to video swap",
-    )
+    # Add subparsers
+    subparsers = parser.add_subparsers(dest="command", help="Sub-commands")
 
-    # parameters for image to image
-    parser.add_argument(
-        "--image_to_image",
-        default=False,
-        type=bool,
-        help="True for image to image swap, False for swap on video",
-    )
-    parser.add_argument(
+    # Subparser for image
+    image_parser = subparsers.add_parser("image", help="Swap faces to an image")
+    image_parser.add_argument(
+        "-t",
         "--target_image",
-        default="examples/images/beckham.jpg",
         type=str,
-        help="It's necessary for image to image swap",
+        required=True,
+        help="Path to the target image to swap the face to",
     )
-    parser.add_argument(
-        "--out_image_name",
-        default="examples/results/result.png",
+    image_parser.add_argument(
+        "-o",
+        "--output_name",
         type=str,
-        help="It's necessary for image to image swap",
+        default="output.jpg",
+        help="Path to save the result image",
+    )
+
+    # Subparser for video
+    video_parser = subparsers.add_parser("video", help="Swap faces to a video")
+    video_parser.add_argument(
+        "-t",
+        "--target_video",
+        type=str,
+        required=True,
+        help="Path to the target video to swap the face to",
+    )
+    video_parser.add_argument(
+        "-o",
+        "--output_name",
+        type=str,
+        default="output.mp4",
+        help="Path to save the result video",
     )
 
     args = parser.parse_args()
-    main(args)
+
+    start = time.perf_counter()
+
+    # Load the target source
+    if args.command == "image":
+        # Load the target image
+        target_image = cv2.imread(args.target_image)
+        # Raise error if the target image is invalid.
+        if target_image is None:
+            raise FileNotFoundError(f"Invalid target image path: {args.target_image}")
+        # Convert image to RGB
+        target_image = cv2.cvtColor(target_image, cv2.COLOR_BGR2RGB)
+        frames = [target_image]
+    elif args.command == "video":
+        frames, fps = read_video(args.target_video)
+
+    # Run the inference
+    final_frames, crop_frames, full_frames, transform_arrays = inference(
+        source_paths=args.source_paths,
+        target_paths=args.reference_target_paths,
+        frames=frames,
+        batch_size=args.batch_size,
+        apply_super_resolution=args.super_resolution,
+        similarity_threshold=args.similarity_threshold,
+        device=args.device,
+    )
+
+    # Apply the result back to the video or image
+    if args.command == "image":
+        image = full_frames[0]
+        swapped_image = get_final_image(
+            final_frames, crop_frames, image, transform_arrays
+        )
+        swapped_image = cv2.cvtColor(swapped_image, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(args.output_name, swapped_image)
+
+    elif args.command == "video":
+        get_final_video(
+            final_frames,
+            crop_frames,
+            full_frames,
+            transform_arrays,
+            args.output_name,
+            fps,
+        )
+
+        add_audio_from_another_video(
+            video_with_sound=args.target_video,
+            video_without_sound=args.output_name,
+        )
+        print(f"Video saved with path {args.output_name}")
+
+    stop = time.perf_counter()
+
+    print("Total time: ", stop - start)
