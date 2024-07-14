@@ -1,10 +1,10 @@
-from .aad_res_block import AADResBlock
-
-import torch.nn.functional as F
-import torch.nn as nn
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 from ...utils import weight_init
+from .aad_res_block import AADResBlock
+
 
 class AADGenerator(nn.Module):
     """
@@ -12,6 +12,7 @@ class AADGenerator(nn.Module):
 
     This generator try to generate new face from the given source identity and target attribute features.
     """
+
     def __init__(self, backbone: str, c_id: int = 256, num_blocks: int = 2) -> None:
         super().__init__()
         self.up1 = nn.ConvTranspose2d(c_id, 1024, kernel_size=2, stride=1, padding=0)
@@ -45,7 +46,7 @@ class AADGenerator(nn.Module):
             The attribute latent vector from the parallel attribute encoder layer.
         z_id: torch.Tensor
             The identity latent vector from ArcFace model of shape (B, 512)
-        
+
         Returns:
         -------
         y: torch.Tensor

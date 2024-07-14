@@ -1,5 +1,6 @@
 from torch import nn
 
+
 def weight_init(module: nn.Module) -> None:
     """Initialize weights for the torch module."""
     # Initialize weights for linear layers

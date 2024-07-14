@@ -1,6 +1,6 @@
-from torch import nn
 import torch
 import torch.nn.functional as F
+from torch import nn
 
 from ..utils import weight_init
 
@@ -48,6 +48,7 @@ class MLAttrEncoder(nn.Module):
     """
     Multi-level Attribute Encoder
     """
+
     def __init__(self, backbone):
         super(MLAttrEncoder, self).__init__()
         self.backbone = backbone

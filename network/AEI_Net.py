@@ -14,10 +14,12 @@ class AEI_Net(nn.Module):
             self.encoder = MLAttrEncoderResnet()
         self.generator = AADGenerator(backbone, c_id, num_blocks)
 
-    def forward(self, Xt: torch.Tensor, z_id: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(
+        self, Xt: torch.Tensor, z_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass of the network
-        
+
         Parameters:
         ----------
             Xt: torch.Tensor

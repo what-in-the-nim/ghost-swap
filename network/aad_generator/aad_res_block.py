@@ -81,7 +81,9 @@ class AADResBlock(nn.Module):
             ]
             self.last_add_block = AddBlocksSequential(*last_add_block)
 
-    def forward(self, hidden_state: torch.Tensor, z_attr: torch.Tensor, z_id: torch.Tensor):
+    def forward(
+        self, hidden_state: torch.Tensor, z_attr: torch.Tensor, z_id: torch.Tensor
+    ) -> torch.Tensor:
         """
         Forward pass of the AADResBlock
 
@@ -94,6 +96,10 @@ class AADResBlock(nn.Module):
         z_id: torch.Tensor
             The identity latent vector from ArcFace model of shape (B, 512)
 
+        Returns:
+        -------
+        x: torch.Tensor
+            The output of the AADResBlock
         """
         x = self.add_blocks(hidden_state, z_attr, z_id)
         if self.cin != self.cout:
