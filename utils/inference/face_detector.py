@@ -18,18 +18,18 @@ class FaceDetector(FaceAlignment):
             kwargs["landmarks_type"] = 1  # 2D landmarks
         super().__init__(*args, **kwargs)
 
-    def align(self, image: np.ndarray, landmarks: np.ndarray, chip_size: int = 224, scaling: float = 0.9) -> np.ndarray:
+    def align(self, image: np.ndarray, landmark: np.ndarray, chip_size: int = 224, scaling: float = 0.9) -> np.ndarray:
         """Align face using landmarks"""
         # Define the chip corners
         chip_corners = np.float32(
             [[0, 0], [chip_size, 0], [0, chip_size], [chip_size, chip_size]]
         )
-        # Compute the Anchor Landmarks
+        # Compute the anchor landmark
         # This ensures the eyes and chin will not move within the chip
-        right_eye_mean = np.mean(landmarks[36:42], axis=0)
-        left_eye_mean = np.mean(landmarks[42:47], axis=0)
+        right_eye_mean = np.mean(landmark[36:42], axis=0)
+        left_eye_mean = np.mean(landmark[42:47], axis=0)
         middle_eye = (right_eye_mean + left_eye_mean) / 2
-        chin = landmarks[8]
+        chin = landmark[8]
 
         # Compute the chip center and up/side vectors
         mean = middle_eye[:2]
@@ -50,8 +50,8 @@ class FaceDetector(FaceAlignment):
 
         # Compute the Perspective Homography and Extract the chip from the image
         chipMatrix = cv2.getPerspectiveTransform(image_corners, chip_corners)
-        align_image = cv2.warpPerspective(image, chipMatrix, (chip_size, chip_size))
-        return align_image
+        aligned_image = cv2.warpPerspective(image, chipMatrix, (chip_size, chip_size))
+        return aligned_image
 
     def get_keypoints(self, landmarks: list[np.ndarray]) -> list[np.ndarray]:
         """

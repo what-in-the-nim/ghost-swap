@@ -63,7 +63,7 @@ def main(
             img = cv2.imread(source_path)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             landmarks = face_cropper.get_landmarks(img)
-            img = face_cropper.align(img, landmarks=landmarks[0])
+            img = face_cropper.align(img, landmark=landmarks[0])
             source.append(img)
     except TypeError as e:
         print("Bad source images!", str(e))
@@ -90,7 +90,7 @@ def main(
             for target_faces_path in target_faces_paths:
                 img = cv2.imread(target_faces_path)
                 landmarks = face_cropper.get_landmarks(img)
-                img = face_cropper.align(img, landmarks=landmarks[0])
+                img = face_cropper.align(img, landmark=landmarks[0])
                 target.append(img)
         except TypeError:
             print("Bad target images!")
