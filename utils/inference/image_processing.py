@@ -88,16 +88,3 @@ def get_final_image(
     final = np.array(final, dtype="uint8")
     return final
 
-
-def show_images(images: List[np.ndarray], titles=None, figsize=(20, 5), fontsize=15):
-    if titles:
-        assert len(titles) == len(
-            images
-        ), "Amount of images should be the same as the amount of titles"
-
-    fig, axes = plt.subplots(1, len(images), figsize=figsize)
-    for idx, (ax, image) in enumerate(zip(axes, images)):
-        ax.imshow(image[:, :, ::-1])
-        if titles:
-            ax.set_title(titles[idx], fontsize=fontsize)
-        ax.axis("off")
