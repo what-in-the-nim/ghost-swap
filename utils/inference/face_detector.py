@@ -20,6 +20,7 @@ class FaceDetector(FaceAlignment):
 
     def align(self, image: np.ndarray, landmarks: np.ndarray, chip_size: int = 224, scaling: float = 0.9) -> np.ndarray:
         """Align face using landmarks"""
+        # Define the chip corners
         chip_corners = np.float32(
             [[0, 0], [chip_size, 0], [0, chip_size], [chip_size, chip_size]]
         )
@@ -51,3 +52,21 @@ class FaceDetector(FaceAlignment):
         chipMatrix = cv2.getPerspectiveTransform(image_corners, chip_corners)
         align_image = cv2.warpPerspective(image, chipMatrix, (chip_size, chip_size))
         return align_image
+
+    def get_keypoints(self, landmarks: list[np.ndarray]) -> list[np.ndarray]:
+        """
+        Get keypoints of landmark which are left eye, right eye, nose,
+        left corner mouth, right corner mouth respectively.
+        """
+        keypoints_list = []
+
+        for landmark in landmarks:
+            left_eye = np.mean(landmark[36:42], axis=0)
+            right_eye = np.mean(landmark[42:48], axis=0)
+            nose = landmark[33]
+            left_corner_mouth = landmark[48]
+            right_corner_mouth = landmark[54]
+            keypoints = np.array([left_eye, right_eye, nose, left_corner_mouth, right_corner_mouth])
+            keypoints_list.append(keypoints)
+
+        return keypoints_list
