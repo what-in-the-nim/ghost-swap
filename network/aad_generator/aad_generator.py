@@ -12,7 +12,7 @@ class AADGenerator(nn.Module):
 
     This generator try to generate new face from the given source identity and target attribute features.
     """
-    def __init__(self, backbone, c_id=256, num_blocks: int = 2) -> None:
+    def __init__(self, backbone: str, c_id: int = 256, num_blocks: int = 2) -> None:
         super().__init__()
         self.up1 = nn.ConvTranspose2d(c_id, 1024, kernel_size=2, stride=1, padding=0)
         self.AADBlk1 = AADResBlock(1024, 1024, 1024, c_id, num_blocks)
@@ -35,7 +35,22 @@ class AADGenerator(nn.Module):
 
         self.apply(weight_init)
 
-    def forward(self, z_attr, z_id):
+    def forward(self, z_attr: tuple[torch.Tensor], z_id: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the AADGenerator
+
+        Parameters:
+        ----------
+        z_attr: tuple[torch.Tensor]
+            The attribute latent vector from the parallel attribute encoder layer.
+        z_id: torch.Tensor
+            The identity latent vector from ArcFace model of shape (B, 512)
+        
+        Returns:
+        -------
+        y: torch.Tensor
+            The generated image from the given identity and attribute features.
+        """
         m = self.up1(z_id.reshape(z_id.shape[0], -1, 1, 1))
         m2 = F.interpolate(
             self.AADBlk1(m, z_attr[0], z_id),

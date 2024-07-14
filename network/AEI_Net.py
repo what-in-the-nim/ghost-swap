@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 from .aad_generator import AADGenerator
@@ -13,10 +14,22 @@ class AEI_Net(nn.Module):
             self.encoder = MLAttrEncoderResnet()
         self.generator = AADGenerator(backbone, c_id, num_blocks)
 
-    def forward(self, Xt, z_id):
-        attr = self.encoder(Xt)
-        Y = self.generator(attr, z_id)
-        return Y, attr
+    def forward(self, Xt: torch.Tensor, z_id: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Forward pass of the network
+        
+        Parameters:
+        ----------
+            Xt: torch.Tensor
+                Input image tensor of shape (B, C, H, W)
+            z_id: torch.Tensor
+                Identity vector from ArcFace model of shape (B, 512)
 
-    def get_attr(self, X):
+        """
+        attributes = self.get_attr(Xt)
+        Y = self.generator(attributes, z_id)
+        return Y, attributes
+
+    def get_attr(self, X: torch.Tensor) -> torch.Tensor:
+        """Get the attributes of the input image"""
         return self.encoder(X)
