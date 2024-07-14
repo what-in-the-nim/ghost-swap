@@ -9,7 +9,7 @@ import torch
 from arcface_model.iresnet import IResNet, iresnet100
 from models.config_sr import TestOptions
 from models.pix2pix_model import Pix2PixModel
-from network.attribute_encoder.AEI_Net import AEI_Net
+from network import AEI_Net
 from utils.inference.core import model_inference
 from utils.inference.face_detector import FaceDetector
 from utils.inference.image_processing import get_final_image

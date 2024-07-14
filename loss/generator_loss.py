@@ -20,7 +20,7 @@ def compute_generator_losses(
     # adversarial loss
     L_adv = 0.0
     for di in Di:
-        L_adv += hinge_loss(di[0], True).mean(dim=[1, 2, 3])
+        L_adv += hinge_loss(di[0]).mean(dim=[1, 2, 3])
     L_adv = torch.sum(L_adv * diff_person) / (diff_person.sum() + 1e-4)
 
     # id loss

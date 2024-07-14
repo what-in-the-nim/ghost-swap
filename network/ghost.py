@@ -1,78 +1,82 @@
-print("started imports")
+from typing import Any
 
-import argparse
-import os
-import sys
-import time
-
-import cv2
 import torch
 import torch.nn.functional as F
-import torch.optim as optim
-import torch.optim.lr_scheduler as scheduler
-import wandb
-from PIL import Image
-from torch.utils.data import DataLoader
+from pytorch_lightning import LightningModule
+from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
 
-# custom imports
-sys.path.append("./apex/")
-
-from AdaptiveWingLoss.core import models
-from arcface_model.iresnet import iresnet100
-
-from apex import amp
+from arcface_model import iresnet100
 from network import AEI_Net, MultiscaleDiscriminator
-from utils.training.Dataset import FaceEmbed, FaceEmbedVGG2
-from utils.training.detector import detect_landmarks, paint_eyes
-from utils.training.image_processing import get_faceswap, make_image_list
-from loss.losses import compute_discriminator_loss, compute_generator_losses
-
-print("finished imports")
 
 
-def train_one_epoch(
-    G: "generator model",
-    D: "discriminator model",
-    opt_G: "generator opt",
-    opt_D: "discriminator opt",
-    scheduler_G: "scheduler G opt",
-    scheduler_D: "scheduler D opt",
-    netArc: "ArcFace model",
-    model_ft: "Landmark Detector",
-    args: "Args Namespace",
-    dataloader: torch.utils.data.DataLoader,
-    device: "torch device",
-    epoch: int,
-    loss_adv_accumulated: int,
-):
+class GhostSwap(LightningModule):
+    def __init__(
+        self,
+        arcface_path: str,
+        generator_lr: float,
+        discriminator_lr: float,
+        betas: tuple[float, float] = (0, 0.999),
+        weight_decay: float = 1e-4,
+        scheduler_step: int = 5000,
+        scheduler_gamma: float = 0.2,
+    ) -> None:
+        """Initialize the model"""
+        super().__init__()
+        self.save_hyperparameters()
+        # Load the face embedder model
+        arcface_state_dict = torch.load(arcface_path, map_location=torch.device("cpu"))
+        self.face_embedder = iresnet100(fp16=False)
+        self.face_embedder.load_state_dict(arcface_state_dict)
+        self.face_embedder.eval()
 
-    for iteration, data in enumerate(dataloader):
-        start_time = time.time()
+        self.generator = AEI_Net()
+        self.discriminator = MultiscaleDiscriminator()
 
-        Xs_orig, Xs, Xt, same_person = data
+        self.generator_lr = generator_lr
+        self.discriminator_lr = discriminator_lr
+        self.betas = betas
+        self.weight_decay = weight_decay
 
-        Xs_orig = Xs_orig.to(device)
-        Xs = Xs.to(device)
-        Xt = Xt.to(device)
-        same_person = same_person.to(device)
+        self.scheduler_step = scheduler_step
+        self.scheduler_gamma = scheduler_gamma
 
-        # get the identity embeddings of Xs
-        with torch.no_grad():
-            embed = netArc(
-                F.interpolate(Xs_orig, [112, 112], mode="bilinear", align_corners=False)
-            )
+        # Define loss
+        self.eye_loss = 
+
+    def forward(self, X: torch.Tensor, z_id: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass of the network"""
+        attributes = self.get_attr(X)
+        Y = self.generator(attributes, z_id)
+        return Y, attributes
+    
+    @torch.no_grad()
+    def embed_face(self, X: torch.Tensor) -> torch.Tensor:
+        """Get the identity embeddings of the input image"""
+        return self.face_embedder(F.interpolate(X, [112, 112], mode="bilinear", align_corners=False))
+    
+    def get_attr(self, X: torch.Tensor) -> torch.Tensor:
+        """Get the attributes of the input image"""
+        return self.encoder(X)
+    
+    def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
+        """Training step for the model"""
+        Xs_orig, Xs, Xt, same_person = batch
+
+        # Get the identity embeddings of Xs
+        face_embeddings = self.embed_face(Xs_orig)
 
         diff_person = torch.ones_like(same_person)
 
         if args.diff_eq_same:
             same_person = diff_person
 
-        # generator training
-        opt_G.zero_grad()
+        # Training Generator
+        optimizer_G.zero_grad()
 
-        Y, Xt_attr = G(Xt, embed)
-        Di = D(Y)
-        ZY = netArc(F.interpolate(Y, [112, 112], mode="bilinear", align_corners=False))
+        Y, Xt_attributes = self.generator(Xt, face_embeddings)
+        Di = self.discriminator(Y)
+        ZY = self.embed_face(Y)
 
         if args.eye_detector_loss:
             Xt_eyes, Xt_heatmap_left, Xt_heatmap_right = detect_landmarks(Xt, model_ft)
@@ -91,7 +95,7 @@ def train_one_epoch(
                 G,
                 Y,
                 Xt,
-                Xt_attr,
+                Xt_attributes,
                 Di,
                 embed,
                 ZY,
@@ -109,7 +113,7 @@ def train_one_epoch(
         if args.scheduler:
             scheduler_G.step()
 
-        # discriminator training
+        # Training Discriminator
         opt_D.zero_grad()
         lossD = compute_discriminator_loss(D, Y, Xs, diff_person)
         with amp.scale_loss(lossD, opt_D) as scaled_loss:
@@ -120,7 +124,26 @@ def train_one_epoch(
         if args.scheduler:
             scheduler_D.step()
 
-        batch_time = time.time() - start_time
+        return lossG
+
+
+    def configure_optimizers(self) -> tuple[list[Adam], list[StepLR]]:
+        """Configure the optimizer and learning rate scheduler"""
+        optimizer_G = Adam(
+            self.generator.parameters(), lr=self.generator_lr, betas=self.betas, weight_decay=self.weight_decay
+        )
+        optimizer_D = Adam(
+            self.discriminator.parameters(), lr=self.discriminator_lr, betas=self.betas, weight_decay=self.weight_decay
+        )
+        scheduler_G = StepLR(optimizer_G, step_size=self.scheduler_step, gamma=self.scheduler_gamma)
+        scheduler_D = StepLR(optimizer_D, step_size=self.scheduler_step, gamma=self.scheduler_gamma)
+        return [optimizer_G, optimizer_D], [scheduler_G, scheduler_D]
+    
+    def optimizer_zero_grad(self) -> None:
+        """Zero the gradients of the optimizer"""
+        optimizer_G.zero_grad()
+        optimizer_D.zero_grad()
+
 
         if iteration % args.show_step == 0:
             images = [Xs, Xt, Y]
@@ -265,14 +288,6 @@ def train(args, device):
     D = MultiscaleDiscriminator(
         input_nc=3, n_layers=5, norm_layer=torch.nn.InstanceNorm2d
     ).to(device)
-    G.train()
-    D.train()
-
-    # initializing model for identity extraction
-    netArc = iresnet100(fp16=False)
-    netArc.load_state_dict(torch.load("arcface_model/backbone.pth"))
-    netArc = netArc.cuda()
-    netArc.eval()
 
     if args.eye_detector_loss:
         model_ft = models.FAN(4, "False", "False", 98)
@@ -291,27 +306,6 @@ def train(args, device):
         model_ft.eval()
     else:
         model_ft = None
-
-    opt_G = optim.Adam(
-        G.parameters(), lr=args.lr_G, betas=(0, 0.999), weight_decay=1e-4
-    )
-    opt_D = optim.Adam(
-        D.parameters(), lr=args.lr_D, betas=(0, 0.999), weight_decay=1e-4
-    )
-
-    G, opt_G = amp.initialize(G, opt_G, opt_level=args.optim_level)
-    D, opt_D = amp.initialize(D, opt_D, opt_level=args.optim_level)
-
-    if args.scheduler:
-        scheduler_G = scheduler.StepLR(
-            opt_G, step_size=args.scheduler_step, gamma=args.scheduler_gamma
-        )
-        scheduler_D = scheduler.StepLR(
-            opt_D, step_size=args.scheduler_step, gamma=args.scheduler_gamma
-        )
-    else:
-        scheduler_G = None
-        scheduler_D = None
 
     if args.pretrained:
         try:
@@ -334,7 +328,7 @@ def train(args, device):
             same_identity=args.same_identity,
         )
     else:
-        dataset = FaceEmbed([args.dataset_path], p_return_same_person=args.same_person)
+        dataset = FaceEmbed([args.dataset_path], same_prob=args.same_person)
 
     dataloader = DataLoader(
         dataset, batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True
