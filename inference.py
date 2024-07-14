@@ -19,40 +19,25 @@ from utils.inference.video_processing import (
     get_target,
     read_video,
 )
+from arcface_model.iresnet import IResNet
 from typing import Sequence
 
+def load_face_cropper() -> Face_detect_crop:
+    cropper = Face_detect_crop(name="antelope", root="./insightface_func/models")
+    cropper.prepare(ctx_id=0, det_thresh=0.6, det_size=(640, 640))
+    return cropper
 
-def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tuple:
-    # model for face cropping
-    app = Face_detect_crop(name="antelope", root="./insightface_func/models")
-    app.prepare(ctx_id=0, det_thresh=0.6, det_size=(640, 640))
-
-    # main model for generation
+def load_aei_net(G_path: str, backbone: str, num_blocks: int) -> AEI_Net:
     G = AEI_Net(backbone, num_blocks=num_blocks, c_id=512)
     G.eval()
     G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
-    # G = G.cuda()
-    # G = G.half()
+    return G
 
-    # arcface model to get face embedding
+def load_arcface_model() -> IResNet:
     netArc = iresnet100(fp16=False)
     netArc.load_state_dict(torch.load("arcface_model/backbone.pth", map_location=torch.device("cpu")))
-    # netArc = netArc.cuda()
     netArc.eval()
-
-
-    # model to make superres of face, set use_sr=True if you want to use super resolution or use_sr=False if you don't
-    if use_sr:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        torch.backends.cudnn.benchmark = True
-        opt = TestOptions()
-        # opt.which_epoch ='10_7'
-        model = Pix2PixModel(opt)
-        model.netG.train()
-    else:
-        model = None
-
-    return app, G, netArc, model
+    return netArc
 
 
 def main(
@@ -71,15 +56,14 @@ def main(
     use_sr: bool,
     similarity_th: float,
 ):
-    app, G, netArc, model = init_models(G_path, backbone, num_blocks, use_sr)
-
     # get crops from source images
     print("List of source paths: ", source_paths)
+    face_cropper = load_face_cropper()
     source = []
     try:
         for source_path in source_paths:
             img = cv2.imread(source_path)
-            img = crop_face(img, app, crop_size)[0]
+            img = crop_face(img, face_cropper, crop_size)[0]
             source.append(img[:, :, ::-1])
     except TypeError as e:
         print("Bad source images!", str(e))
@@ -96,18 +80,21 @@ def main(
     set_target = True
     print("List of target paths: ", target_faces_paths)
     if not target_faces_paths:
-        target = get_target(full_frames, app, crop_size)
+        target = get_target(full_frames, face_cropper, crop_size)
         set_target = False
     else:
         target = []
         try:
             for target_faces_path in target_faces_paths:
                 img = cv2.imread(target_faces_path)
-                img = crop_face(img, app, crop_size)[0]
+                img = crop_face(img, face_cropper, crop_size)[0]
                 target.append(img)
         except TypeError:
             print("Bad target images!")
             exit()
+
+    netArc = load_arcface_model()
+    aei_net = load_aei_net(G_path, backbone, num_blocks)
 
     start = time.time()
     final_frames_list, crop_frames_list, full_frames, tfm_array_list = model_inference(
@@ -115,14 +102,20 @@ def main(
         source,
         target,
         netArc,
-        G,
-        app,
+        aei_net,
+        face_cropper,
         set_target,
         similarity_th=similarity_th,
         crop_size=crop_size,
         BS=batch_size,
     )
     if use_sr:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+        torch.backends.cudnn.benchmark = True
+        opt = TestOptions()
+        # opt.which_epoch ='10_7'
+        model = Pix2PixModel(opt)
+        model.netG.train()
         final_frames_list = face_enhancement(final_frames_list, model)
 
     if not image_to_image:
