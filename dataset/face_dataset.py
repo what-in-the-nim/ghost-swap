@@ -8,7 +8,7 @@ from PIL import Image
 from torch.utils.data import TensorDataset
 
 
-class FaceEmbed(TensorDataset):
+class FaceDataset(TensorDataset):
     def __init__(self, image_dir: str, p_return_same_person: float = 0.8) -> None:
         image_dir: Path = Path(image_dir)
         # Check if image dir exists
