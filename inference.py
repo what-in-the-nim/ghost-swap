@@ -81,8 +81,8 @@ def main(
             img = cv2.imread(source_path)
             img = crop_face(img, app, crop_size)[0]
             source.append(img[:, :, ::-1])
-    except TypeError:
-        print("Bad source images!")
+    except TypeError as e:
+        print("Bad source images!", str(e))
         exit()
 
     # get full frames from video

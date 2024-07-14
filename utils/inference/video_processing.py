@@ -299,7 +299,9 @@ def get_final_video(
                 # torch.cuda.empty_cache()
 
             except Exception as e:
-                pass
+                print("Error in frame", i, "and face", j)
+                print(traceback.format_exc())
+                continue
 
         out.write(result_frames[i])
 
