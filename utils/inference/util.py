@@ -9,35 +9,13 @@ import os
 import re
 from argparse import Namespace
 
-import dill as pickle
 import numpy as np
 import torch
-from PIL import Image
-
-# import util.coco
-
-
-def save_obj(obj, name):
-    with open(name, "wb") as f:
-        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
-
-
-def load_obj(name):
-    with open(name, "rb") as f:
-        return pickle.load(f)
 
 
 # returns a configuration for creating a generator
 # |default_opt| should be the opt of the current experiment
 # |**kwargs|: if any configuration should be overriden, it can be specified here
-
-
-def copyconf(default_opt, **kwargs):
-    conf = argparse.Namespace(**vars(default_opt))
-    for key in kwargs:
-        print(key, kwargs[key])
-        setattr(conf, key, kwargs[key])
-    return conf
 
 
 def tile_images(imgs, picturesPerRow=4):
@@ -133,32 +111,6 @@ def tensor2label(label_tensor, n_label, imtype=np.uint8, tile=False):
     return result
 
 
-def save_image(image_numpy, image_path, create_dir=False):
-    if create_dir:
-        os.makedirs(os.path.dirname(image_path), exist_ok=True)
-    if len(image_numpy.shape) == 2:
-        image_numpy = np.expand_dims(image_numpy, axis=2)
-    if image_numpy.shape[2] == 1:
-        image_numpy = np.repeat(image_numpy, 3, 2)
-    image_pil = Image.fromarray(image_numpy)
-
-    # save to png
-    image_pil.save(image_path.replace(".jpg", ".png"))
-
-
-def mkdirs(paths):
-    if isinstance(paths, list) and not isinstance(paths, str):
-        for path in paths:
-            mkdir(path)
-    else:
-        mkdir(paths)
-
-
-def mkdir(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-
-
 def atoi(text):
     return int(text) if text.isdigit() else text
 
@@ -171,9 +123,6 @@ def natural_keys(text):
     """
     return [atoi(c) for c in re.split("(\d+)", text)]
 
-
-def natural_sort(items):
-    items.sort(key=natural_keys)
 
 
 def str2bool(v):
