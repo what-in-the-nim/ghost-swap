@@ -5,8 +5,8 @@ import torch
 import torch.nn.functional as F
 from tqdm import tqdm
 
-from .image_processing import crop_face, normalize_and_torch, normalize_and_torch_batch
-from .video_processing import crop_frames_and_get_transforms, read_video, resize_frames
+from .image_processing import normalize_and_torch, normalize_and_torch_batch
+from .video_processing import crop_frames_and_get_transforms, resize_frames
 
 def faceshifter_batch(
     source_emb: torch.tensor, target: torch.tensor, G: torch.nn.Module

@@ -338,7 +338,7 @@ def face_enhancement(final_frames: List[np.ndarray], model) -> List[np.ndarray]:
             dataset, batch_size=20, shuffle=False, num_workers=1, drop_last=False
         )
 
-        for iteration, data in tqdm(enumerate(dataloader)):
+        for data in tqdm(dataloader):
             frames = data
             data = {"image": frames, "label": frames}
             generated = model(data, mode="inference2")
