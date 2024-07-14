@@ -2,3 +2,5 @@
 */__pycache__/
 .ipynb_checkpoints
 __pycache__
+/weights/
+/arcface_model/backbone.pth
