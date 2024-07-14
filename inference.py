@@ -6,7 +6,6 @@ import cv2
 import torch
 from arcface_model.iresnet import iresnet100
 
-from coordinate_reg.image_infer import Handler
 from insightface_func.face_detect_crop_multi import Face_detect_crop
 from models.config_sr import TestOptions
 from models.pix2pix_model import Pix2PixModel
@@ -41,8 +40,6 @@ def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tu
     # netArc = netArc.cuda()
     netArc.eval()
 
-    # model to get face landmarks
-    handler = Handler("./coordinate_reg/model/2d106det", 0, ctx_id=0, det_size=640)
 
     # model to make superres of face, set use_sr=True if you want to use super resolution or use_sr=False if you don't
     if use_sr:
@@ -55,7 +52,7 @@ def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tu
     else:
         model = None
 
-    return app, G, netArc, handler, model
+    return app, G, netArc, model
 
 
 def main(
@@ -74,7 +71,7 @@ def main(
     use_sr: bool,
     similarity_th: float,
 ):
-    app, G, netArc, handler, model = init_models(G_path, backbone, num_blocks, use_sr)
+    app, G, netArc, model = init_models(G_path, backbone, num_blocks, use_sr)
 
     # get crops from source images
     print("List of source paths: ", source_paths)
@@ -136,7 +133,6 @@ def main(
             tfm_array_list,
             out_video_name,
             fps,
-            handler,
         )
 
         add_audio_from_another_video(target_video, out_video_name, "audio")

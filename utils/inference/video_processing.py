@@ -17,6 +17,8 @@ from tqdm import tqdm
 from .image_processing import crop_face, normalize_and_torch_batch
 from .masks import face_mask_static
 
+from face_alignment import FaceAlignment, LandmarksType
+
 
 def add_audio_from_another_video(
     video_with_sound: str,
@@ -215,7 +217,6 @@ def get_final_video(
     tfm_array: List[np.ndarray],
     OUT_VIDEO_NAME: str,
     fps: float,
-    handler,
 ) -> None:
     """
     Create final video from frames
@@ -230,6 +231,7 @@ def get_final_video(
     size = (full_frames[0].shape[0], full_frames[0].shape[1])
     params = [None for i in range(len(crop_frames))]
     result_frames = full_frames.copy()
+    model =  FaceAlignment(LandmarksType.TWO_D, device='cpu')
 
     for i in tqdm(range(len(full_frames))):
         if i == len(full_frames):
@@ -242,16 +244,16 @@ def get_final_video(
                     params[j] = None
                     continue
 
-                landmarks = handler.get_without_detection_without_transform(swap)
+
+                landmarks = model.get_landmarks(swap)
+                landmarks_tgt = model.get_landmarks(crop_frames[j][i])
+
                 if params[j] == None:
-                    landmarks_tgt = handler.get_without_detection_without_transform(
-                        crop_frames[j][i]
-                    )
                     mask, params[j] = face_mask_static(
-                        swap, landmarks, landmarks_tgt, params[j]
+                        swap, landmarks[0], landmarks_tgt[0], params[j]
                     )
                 else:
-                    mask = face_mask_static(swap, landmarks, landmarks_tgt, params[j])
+                    mask = face_mask_static(swap, landmarks[0], landmarks_tgt[0], params[j])
 
                 swap = (
                     torch.from_numpy(swap)
