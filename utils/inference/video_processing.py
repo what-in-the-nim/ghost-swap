@@ -73,7 +73,23 @@ def read_video(path_to_video: str) -> Tuple[List[np.ndarray], float]:
     return full_frames, fps
 
 
-def get_target(full_frames: List[np.ndarray], app: Callable):
+def get_target(full_frames: List[np.ndarray], app: Callable) -> np.ndarray:
+    i = 0
+    target = None
+    while target is None:
+        if i < len(full_frames):
+            try:
+                landmarks = app.get_landmarks(full_frames[i])
+                target = app.align(full_frames[i], landmarks=landmarks[0])
+                # target = [crop_face(full_frames[i], app)[0]]
+            except TypeError:
+                i += 1
+        else:
+            print("Video doesn't contain face!")
+            break
+    return target
+
+def get_old_target(full_frames: List[np.ndarray], app: Callable):
     i = 0
     target = None
     while target is None:
@@ -135,15 +151,13 @@ def crop_frames_and_get_transforms(
     target_embeds = F.normalize(target_embeds)
     for frame in tqdm(full_frames):
         try:
-            kps = app.get(frame, crop_size)
-            if len(kps) > 1 or set_target:
+            landmarks = app.get_landmarks(frame)
+            kps = app.get_keypoints(landmarks)
+            if len(landmarks) > 1 or set_target:
                 faces = []
-                for p in kps:
-                    M, _ = face_align.estimate_norm(p, crop_size, mode="None")
-                    align_img = cv2.warpAffine(
-                        frame, M, (crop_size, crop_size), borderValue=0.0
-                    )
-                    faces.append(align_img)
+                for landmark in landmarks:
+                    align_face = app.align(frame, landmarks=landmark)
+                    faces.append(align_face)
 
                 face_norm = normalize_and_torch_batch(np.array(faces))
                 face_norm = F.interpolate(
@@ -152,6 +166,7 @@ def crop_frames_and_get_transforms(
                 face_embeds = netArc(face_norm)
                 face_embeds = F.normalize(face_embeds)
 
+                # Find the best face that matches the target
                 similarity = face_embeds @ target_embeds.T
                 best_idxs = similarity.argmax(0).detach().cpu().numpy()
                 for idx, best_idx in enumerate(best_idxs):

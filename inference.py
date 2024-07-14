@@ -1,17 +1,18 @@
 import argparse
 import os
 import time
+from typing import Sequence
 
 import cv2
 import torch
-from arcface_model.iresnet import iresnet100
 
-from insightface_func.face_detect_crop_multi import Face_detect_crop
+from arcface_model.iresnet import IResNet, iresnet100
 from models.config_sr import TestOptions
 from models.pix2pix_model import Pix2PixModel
 from network.AEI_Net import AEI_Net
 from utils.inference.core import model_inference
-from utils.inference.image_processing import crop_face, get_final_image
+from utils.inference.face_detector import FaceDetector
+from utils.inference.image_processing import get_final_image
 from utils.inference.video_processing import (
     add_audio_from_another_video,
     face_enhancement,
@@ -19,13 +20,7 @@ from utils.inference.video_processing import (
     get_target,
     read_video,
 )
-from arcface_model.iresnet import IResNet
-from typing import Sequence
 
-def load_face_cropper() -> Face_detect_crop:
-    cropper = Face_detect_crop(name="antelope", root="./insightface_func/models")
-    cropper.prepare(ctx_id=0, det_thresh=0.6, det_size=(640, 640))
-    return cropper
 
 def load_aei_net(G_path: str, backbone: str, num_blocks: int) -> AEI_Net:
     G = AEI_Net(backbone, num_blocks=num_blocks, c_id=512)
@@ -33,9 +28,12 @@ def load_aei_net(G_path: str, backbone: str, num_blocks: int) -> AEI_Net:
     G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
     return G
 
+
 def load_arcface_model() -> IResNet:
     netArc = iresnet100(fp16=False)
-    netArc.load_state_dict(torch.load("arcface_model/backbone.pth", map_location=torch.device("cpu")))
+    netArc.load_state_dict(
+        torch.load("arcface_model/backbone.pth", map_location=torch.device("cpu"))
+    )
     netArc.eval()
     return netArc
 
@@ -57,13 +55,16 @@ def main(
 ):
     # get crops from source images
     print("List of source paths: ", source_paths)
-    face_cropper = load_face_cropper()
     source = []
+
+    face_cropper = FaceDetector(device="mps")
     try:
         for source_path in source_paths:
             img = cv2.imread(source_path)
-            img = crop_face(img, face_cropper)[0]
-            source.append(img[:, :, ::-1])
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            landmarks = face_cropper.get_landmarks(img)
+            img = face_cropper.align(img, landmarks=landmarks[0])
+            source.append(img)
     except TypeError as e:
         print("Bad source images!", str(e))
         exit()
@@ -73,6 +74,7 @@ def main(
         full_frames, fps = read_video(target_video)
     else:
         target_full = cv2.imread(target_image)
+        target_full = cv2.cvtColor(target_full, cv2.COLOR_BGR2RGB)
         full_frames = [target_full]
 
     # get target faces that are used for swap
@@ -80,13 +82,15 @@ def main(
     print("List of target paths: ", target_faces_paths)
     if not target_faces_paths:
         target = get_target(full_frames, face_cropper)
+        target = [target]
         set_target = False
     else:
         target = []
         try:
             for target_faces_path in target_faces_paths:
                 img = cv2.imread(target_faces_path)
-                img = crop_face(img, face_cropper)[0]
+                landmarks = face_cropper.get_landmarks(img)
+                img = face_cropper.align(img, landmarks=landmarks[0])
                 target.append(img)
         except TypeError:
             print("Bad target images!")
@@ -132,6 +136,7 @@ def main(
         result = get_final_image(
             final_frames_list, crop_frames_list, full_frames[0], tfm_array_list
         )
+        result = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
         cv2.imwrite(out_image_name, result)
         print(f"Swapped Image saved with path {out_image_name}")
 

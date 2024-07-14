@@ -10,8 +10,8 @@ from .video_processing import crop_frames_and_get_transforms, resize_frames
 
 def model_inference(
     full_frames: List[np.ndarray],
-    source: List,
-    target: List,
+    source: List[np.ndarray],
+    target: List[np.ndarray],
     netArc: Callable,
     G: Callable,
     app: Callable,
