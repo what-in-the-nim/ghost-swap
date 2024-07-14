@@ -50,9 +50,6 @@ def read_video(path_to_video: str) -> Tuple[List[np.ndarray], float]:
     # load video
     cap = cv2.VideoCapture(path_to_video)
 
-    width_original, height_original = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(
-        cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    )  #
     fps, frames = cap.get(cv2.CAP_PROP_FPS), cap.get(cv2.CAP_PROP_FRAME_COUNT)
 
     full_frames = []
