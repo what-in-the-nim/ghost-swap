@@ -20,6 +20,7 @@ from utils.inference.video_processing import (
     get_target,
     read_video,
 )
+from typing import Sequence
 
 
 def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tuple:
@@ -57,40 +58,55 @@ def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tu
     return app, G, netArc, handler, model
 
 
-def main(args):
-    app, G, netArc, handler, model = init_models(args)
+def main(
+    source_paths: Sequence[str],
+    target_faces_paths: Sequence[str],
+    target_video: str,
+    out_video_name: str,
+    image_to_image: bool,
+    target_image: str,
+    out_image_name: str,
+    G_path: str,
+    backbone: str,
+    num_blocks: int,
+    batch_size: int,
+    crop_size: int,
+    use_sr: bool,
+    similarity_th: float,
+):
+    app, G, netArc, handler, model = init_models(G_path, backbone, num_blocks, use_sr)
 
     # get crops from source images
-    print("List of source paths: ", args.source_paths)
+    print("List of source paths: ", source_paths)
     source = []
     try:
-        for source_path in args.source_paths:
+        for source_path in source_paths:
             img = cv2.imread(source_path)
-            img = crop_face(img, app, args.crop_size)[0]
+            img = crop_face(img, app, crop_size)[0]
             source.append(img[:, :, ::-1])
     except TypeError:
         print("Bad source images!")
         exit()
 
     # get full frames from video
-    if not args.image_to_image:
-        full_frames, fps = read_video(args.target_video)
+    if not image_to_image:
+        full_frames, fps = read_video(target_video)
     else:
-        target_full = cv2.imread(args.target_image)
+        target_full = cv2.imread(target_image)
         full_frames = [target_full]
 
     # get target faces that are used for swap
     set_target = True
-    print("List of target paths: ", args.target_faces_paths)
-    if not args.target_faces_paths:
-        target = get_target(full_frames, app, args.crop_size)
+    print("List of target paths: ", target_faces_paths)
+    if not target_faces_paths:
+        target = get_target(full_frames, app, crop_size)
         set_target = False
     else:
         target = []
         try:
-            for target_faces_path in args.target_faces_paths:
+            for target_faces_path in target_faces_paths:
                 img = cv2.imread(target_faces_path)
-                img = crop_face(img, app, args.crop_size)[0]
+                img = crop_face(img, app, crop_size)[0]
                 target.append(img)
         except TypeError:
             print("Bad target images!")
@@ -105,32 +121,32 @@ def main(args):
         G,
         app,
         set_target,
-        similarity_th=args.similarity_th,
-        crop_size=args.crop_size,
-        BS=args.batch_size,
+        similarity_th=similarity_th,
+        crop_size=crop_size,
+        BS=batch_size,
     )
-    if args.use_sr:
+    if use_sr:
         final_frames_list = face_enhancement(final_frames_list, model)
 
-    if not args.image_to_image:
+    if not image_to_image:
         get_final_video(
             final_frames_list,
             crop_frames_list,
             full_frames,
             tfm_array_list,
-            args.out_video_name,
+            out_video_name,
             fps,
             handler,
         )
 
-        add_audio_from_another_video(args.target_video, args.out_video_name, "audio")
-        print(f"Video saved with path {args.out_video_name}")
+        add_audio_from_another_video(target_video, out_video_name, "audio")
+        print(f"Video saved with path {out_video_name}")
     else:
         result = get_final_image(
             final_frames_list, crop_frames_list, full_frames[0], tfm_array_list, handler
         )
-        cv2.imwrite(args.out_image_name, result)
-        print(f"Swapped Image saved with path {args.out_image_name}")
+        cv2.imwrite(out_image_name, result)
+        print(f"Swapped Image saved with path {out_image_name}")
 
     print("Total time: ", time.time() - start)
 
@@ -219,4 +235,19 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-    main(args)
+    main(
+        source_paths=args.source_paths,
+        target_faces_paths=args.target_faces_paths,
+        target_video=args.target_video,
+        out_video_name=args.out_video_name,
+        image_to_image=args.image_to_image,
+        target_image=args.target_image,
+        out_image_name=args.out_image_name,
+        G_path=args.G_path,
+        backbone=args.backbone,
+        num_blocks=args.num_blocks,
+        batch_size=args.batch_size,
+        crop_size=args.crop_size,
+        use_sr=args.use_sr,
+        similarity_th=args.similarity_th,
+    )
