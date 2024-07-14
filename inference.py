@@ -52,7 +52,6 @@ def main(
     backbone: str,
     num_blocks: int,
     batch_size: int,
-    crop_size: int,
     use_sr: bool,
     similarity_th: float,
 ):
@@ -63,7 +62,7 @@ def main(
     try:
         for source_path in source_paths:
             img = cv2.imread(source_path)
-            img = crop_face(img, face_cropper, crop_size)[0]
+            img = crop_face(img, face_cropper)[0]
             source.append(img[:, :, ::-1])
     except TypeError as e:
         print("Bad source images!", str(e))
@@ -80,14 +79,14 @@ def main(
     set_target = True
     print("List of target paths: ", target_faces_paths)
     if not target_faces_paths:
-        target = get_target(full_frames, face_cropper, crop_size)
+        target = get_target(full_frames, face_cropper)
         set_target = False
     else:
         target = []
         try:
             for target_faces_path in target_faces_paths:
                 img = cv2.imread(target_faces_path)
-                img = crop_face(img, face_cropper, crop_size)[0]
+                img = crop_face(img, face_cropper)[0]
                 target.append(img)
         except TypeError:
             print("Bad target images!")
@@ -106,7 +105,6 @@ def main(
         face_cropper,
         set_target,
         similarity_th=similarity_th,
-        crop_size=crop_size,
         BS=batch_size,
     )
     if use_sr:
@@ -163,7 +161,6 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--batch_size", default=40, type=int)
-    parser.add_argument("--crop_size", default=224, type=int, help="Don't change this")
     parser.add_argument(
         "--use_sr",
         default=False,
@@ -236,7 +233,6 @@ if __name__ == "__main__":
         backbone=args.backbone,
         num_blocks=args.num_blocks,
         batch_size=args.batch_size,
-        crop_size=args.crop_size,
         use_sr=args.use_sr,
         similarity_th=args.similarity_th,
     )

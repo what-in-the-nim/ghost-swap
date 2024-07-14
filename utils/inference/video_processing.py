@@ -76,13 +76,13 @@ def read_video(path_to_video: str) -> Tuple[List[np.ndarray], float]:
     return full_frames, fps
 
 
-def get_target(full_frames: List[np.ndarray], app: Callable, crop_size: int):
+def get_target(full_frames: List[np.ndarray], app: Callable):
     i = 0
     target = None
     while target is None:
         if i < len(full_frames):
             try:
-                target = [crop_face(full_frames[i], app, crop_size)[0]]
+                target = [crop_face(full_frames[i], app)[0]]
             except TypeError:
                 i += 1
         else:

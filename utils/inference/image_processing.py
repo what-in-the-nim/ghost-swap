@@ -10,13 +10,13 @@ from .masks import face_mask_static
 from face_alignment import FaceAlignment, LandmarksType
 
 
-def crop_face(image_full: np.ndarray, app: Callable, crop_size: int) -> np.ndarray:
+def crop_face(image_full: np.ndarray, app: Callable) -> np.ndarray:
     """
     Crop face from image and resize
     """
-    kps = app.get(image_full, crop_size)
-    M, _ = face_align.estimate_norm(kps[0], crop_size, mode="None")
-    align_img = cv2.warpAffine(image_full, M, (crop_size, crop_size), borderValue=0.0)
+    kps = app.get(image_full, 224)
+    M, _ = face_align.estimate_norm(kps[0], 224, mode="None")
+    align_img = cv2.warpAffine(image_full, M, (224, 224), borderValue=0.0)
     return [align_img]
 
 
