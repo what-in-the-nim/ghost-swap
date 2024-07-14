@@ -10,7 +10,7 @@ from .image_processing import crop_face, normalize_and_torch, normalize_and_torc
 from .video_processing import crop_frames_and_get_transforms, read_video, resize_frames
 
 
-def transform_target_to_torch(resized_frs: np.ndarray, half=True) -> torch.tensor:
+def transform_target_to_torch(resized_frs: np.ndarray, half=False) -> torch.tensor:
     """
     Transform target, so it could be used by model
     """
@@ -37,7 +37,7 @@ def model_inference(
     similarity_th=0.15,
     crop_size=224,
     BS=60,
-    half=True,
+    half=False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Using original frames get faceswaped frames and transofrmations
