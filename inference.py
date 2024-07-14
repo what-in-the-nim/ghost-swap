@@ -222,8 +222,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-sr",
         "--super_resolution",
-        default=False,
-        type=bool,
+        action="store_true",
         help="Apply super resolution to the final result",
     )
     parser.add_argument(
