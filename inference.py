@@ -32,7 +32,7 @@ def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tu
     G.eval()
     G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
     # G = G.cuda()
-    G = G.half()
+    # G = G.half()
 
     # arcface model to get face embedding
     netArc = iresnet100(fp16=False)
