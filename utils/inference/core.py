@@ -81,7 +81,7 @@ def model_inference(
         model_output = []
 
         for i in tqdm(range(0, size, BS)):
-            bs = target.shape[0]
+            bs = target_batch_rs[i : i + BS].shape[0]
 
             if bs > 1:
                 source_embed = torch.cat([source_embed] * bs)
