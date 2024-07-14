@@ -14,6 +14,7 @@ from scipy.spatial import distance
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from .face_detector import FaceDetector
 from .image_processing import normalize_and_torch_batch
 from .masks import face_mask_static
 
@@ -120,7 +121,7 @@ def smooth_landmarks(kps_arr, n=2):
 def crop_frames_and_get_transforms(
     full_frames: List[np.ndarray],
     target_embeds: torch.Tensor,
-    app: Callable,
+    face_detector: FaceDetector,
     netArc: Callable,
     crop_size: int,
     set_target: bool,
@@ -137,12 +138,12 @@ def crop_frames_and_get_transforms(
     target_embeds = F.normalize(target_embeds)
     for frame in tqdm(full_frames, desc="Finding face in frames"):
         try:
-            landmarks = app.get_landmarks(frame)
-            kps = app.get_keypoints(landmarks)
+            landmarks = face_detector.get_landmarks(frame)
+            kps = face_detector.get_keypoints(landmarks)
             if len(landmarks) > 1 or set_target:
                 faces = []
                 for landmark in landmarks:
-                    align_face = app.align(frame, landmarks=landmark)
+                    align_face = face_detector.align(frame, landmark=landmark)
                     faces.append(align_face)
 
                 face_norm = normalize_and_torch_batch(np.array(faces))
