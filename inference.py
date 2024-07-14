@@ -22,15 +22,15 @@ from utils.inference.video_processing import (
 )
 
 
-def init_models(args):
+def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tuple:
     # model for face cropping
     app = Face_detect_crop(name="antelope", root="./insightface_func/models")
     app.prepare(ctx_id=0, det_thresh=0.6, det_size=(640, 640))
 
     # main model for generation
-    G = AEI_Net(args.backbone, num_blocks=args.num_blocks, c_id=512)
+    G = AEI_Net(backbone, num_blocks=num_blocks, c_id=512)
     G.eval()
-    G.load_state_dict(torch.load(args.G_path, map_location=torch.device("cpu")))
+    G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
     G = G.cuda()
     G = G.half()
 
@@ -44,7 +44,7 @@ def init_models(args):
     handler = Handler("./coordinate_reg/model/2d106det", 0, ctx_id=0, det_size=640)
 
     # model to make superres of face, set use_sr=True if you want to use super resolution or use_sr=False if you don't
-    if args.use_sr:
+    if use_sr:
         os.environ["CUDA_VISIBLE_DEVICES"] = "0"
         torch.backends.cudnn.benchmark = True
         opt = TestOptions()
