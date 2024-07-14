@@ -282,9 +282,9 @@ def get_final_video(
                     .type(torch.float32)
                 )
 
-                mat_rev = kornia.invert_affine_transform(mat)
-                swap_t = kornia.warp_affine(swap, mat_rev, size)
-                mask_t = kornia.warp_affine(mask, mat_rev, size)
+                mat_rev = kornia.geometry.transform.invert_affine_transform(mat)
+                swap_t = kornia.geometry.transform.warp_affine(swap, mat_rev, size)
+                mask_t = kornia.geometry.transform.warp_affine(mask, mat_rev, size)
                 final = (
                     (mask_t * swap_t + (1 - mask_t) * full_frame)
                     .type(torch.uint8)
