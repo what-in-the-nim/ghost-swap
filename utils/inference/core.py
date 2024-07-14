@@ -8,43 +8,6 @@ from tqdm import tqdm
 from .image_processing import normalize_and_torch, normalize_and_torch_batch
 from .video_processing import crop_frames_and_get_transforms, resize_frames
 
-def faceshifter_batch(
-    source_emb: torch.tensor, target: torch.tensor, G: torch.nn.Module
-) -> np.ndarray:
-    """
-    Apply faceshifter model for batch of target images
-    """
-
-    bs = target.shape[0]
-    assert target.ndim == 4, "target should have 4 dimentions -- B x C x H x W"
-
-    if bs > 1:
-        source_emb = torch.cat([source_emb] * bs)
-
-    with torch.no_grad():
-        Y_st, _ = G(target, source_emb)
-        Y_st = (Y_st.permute(0, 2, 3, 1) * 0.5 + 0.5) * 255
-        Y_st = Y_st[:, :, :, [2, 1, 0]].type(torch.uint8)
-        Y_st = Y_st.cpu().detach().numpy()
-    return Y_st
-
-
-def transform_target_to_torch(resized_frs: np.ndarray, half=False) -> torch.tensor:
-    """
-    Transform target, so it could be used by model
-    """
-    target_batch_rs = torch.from_numpy(resized_frs.copy())
-    target_batch_rs = target_batch_rs[:, :, :, [2, 1, 0]] / 255.0
-
-    if half:
-        target_batch_rs = target_batch_rs.half()
-
-    target_batch_rs = (target_batch_rs - 0.5) / 0.5  # normalize
-    target_batch_rs = target_batch_rs.permute(0, 3, 1, 2)
-
-    return target_batch_rs
-
-
 def model_inference(
     full_frames: List[np.ndarray],
     source: List,
@@ -101,7 +64,14 @@ def model_inference(
         resized_frs = np.array(resized_frs)
 
         # transform embeds of Xs and target frames to use by model
-        target_batch_rs = transform_target_to_torch(resized_frs, half=half)
+        target_batch_rs = torch.from_numpy(resized_frs.copy())
+        target_batch_rs = target_batch_rs[:, :, :, [2, 1, 0]] / 255.0
+
+        if half:
+            target_batch_rs = target_batch_rs.half()
+
+        target_batch_rs = (target_batch_rs - 0.5) / 0.5  # normalize
+        target_batch_rs = target_batch_rs.permute(0, 3, 1, 2)
 
         if half:
             source_embed = source_embed.half()
@@ -111,7 +81,16 @@ def model_inference(
         model_output = []
 
         for i in tqdm(range(0, size, BS)):
-            Y_st = faceshifter_batch(source_embed, target_batch_rs[i : i + BS], G)
+            bs = target.shape[0]
+
+            if bs > 1:
+                source_embed = torch.cat([source_embed] * bs)
+
+            with torch.no_grad():
+                Y_st, _ = G(target_batch_rs[i : i + BS], source_embed)
+                Y_st = (Y_st.permute(0, 2, 3, 1) * 0.5 + 0.5) * 255
+                Y_st = Y_st[:, :, :, [2, 1, 0]].type(torch.uint8)
+                Y_st = Y_st.cpu().detach().numpy()
             model_output.append(Y_st)
         # torch.cuda.empty_cache()
         model_output = np.concatenate(model_output)
