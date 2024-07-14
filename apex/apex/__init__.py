@@ -1,12 +1,10 @@
 # May help avoid undefined symbol errors https://pytorch.org/cppdocs/notes/faq.html#undefined-symbol-errors-from-pytorch-aten
-import torch
 import warnings
+
+import torch
 
 if torch.distributed.is_available():
     from . import parallel
-
-from . import amp
-from . import fp16_utils
 
 # For optimizers and normalization there is no Python fallback.
 # Absence of cuda backend is a hard error.
@@ -15,6 +13,4 @@ from . import fp16_utils
 # so they expect those backends to be available, but for some reason they actually aren't
 # available (for example because they built improperly in a way that isn't revealed until
 # load time) the error message is timely and visible.
-from . import optimizers
-from . import normalization
-from . import pyprof
+from . import amp, fp16_utils, normalization, optimizers, pyprof

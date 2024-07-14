@@ -3,26 +3,29 @@ Copyright (C) 2019 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 
-import re
-import importlib
-import torch
-from argparse import Namespace
-import numpy as np
-from PIL import Image
-import os
 import argparse
+import importlib
+import os
+import re
+from argparse import Namespace
+
 import dill as pickle
-#import util.coco
+import numpy as np
+import torch
+from PIL import Image
+
+# import util.coco
 
 
 def save_obj(obj, name):
-    with open(name, 'wb') as f:
+    with open(name, "wb") as f:
         pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
 
 
 def load_obj(name):
-    with open(name, 'rb') as f:
+    with open(name, "rb") as f:
         return pickle.load(f)
+
 
 # returns a configuration for creating a generator
 # |default_opt| should be the opt of the current experiment
@@ -38,7 +41,7 @@ def copyconf(default_opt, **kwargs):
 
 
 def tile_images(imgs, picturesPerRow=4):
-    """ Code borrowed from
+    """Code borrowed from
     https://stackoverflow.com/questions/26521365/cleanly-tile-numpy-array-of-images-stored-in-a-flattened-1d-format/26521997
     """
 
@@ -48,12 +51,16 @@ def tile_images(imgs, picturesPerRow=4):
     else:
         rowPadding = picturesPerRow - imgs.shape[0] % picturesPerRow
     if rowPadding > 0:
-        imgs = np.concatenate([imgs, np.zeros((rowPadding, *imgs.shape[1:]), dtype=imgs.dtype)], axis=0)
+        imgs = np.concatenate(
+            [imgs, np.zeros((rowPadding, *imgs.shape[1:]), dtype=imgs.dtype)], axis=0
+        )
 
     # Tiling Loop (The conditionals are not necessary anymore)
     tiled = []
     for i in range(0, imgs.shape[0], picturesPerRow):
-        tiled.append(np.concatenate([imgs[j] for j in range(i, i + picturesPerRow)], axis=1))
+        tiled.append(
+            np.concatenate([imgs[j] for j in range(i, i + picturesPerRow)], axis=1)
+        )
 
     tiled = np.concatenate(tiled, axis=0)
     return tiled
@@ -86,7 +93,7 @@ def tensor2im(image_tensor, imtype=np.uint8, normalize=True, tile=False):
         image_tensor = image_tensor.unsqueeze(0)
     image_numpy = image_tensor.detach().cpu().float().numpy()
     if normalize:
-        #image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
+        # image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * 255.0
         image_numpy = np.transpose(image_numpy, (1, 2, 0)) * 255.0
     else:
         image_numpy = np.transpose(image_numpy, (1, 2, 0)) * 255.0
@@ -136,7 +143,7 @@ def save_image(image_numpy, image_path, create_dir=False):
     image_pil = Image.fromarray(image_numpy)
 
     # save to png
-    image_pil.save(image_path.replace('.jpg', '.png'))
+    image_pil.save(image_path.replace(".jpg", ".png"))
 
 
 def mkdirs(paths):
@@ -157,12 +164,12 @@ def atoi(text):
 
 
 def natural_keys(text):
-    '''
+    """
     alist.sort(key=natural_keys) sorts in human order
     http://nedbatchelder.com/blog/200712/human_sorting.html
     (See Toothy's implementation in the comments)
-    '''
-    return [atoi(c) for c in re.split('(\d+)', text)]
+    """
+    return [atoi(c) for c in re.split("(\d+)", text)]
 
 
 def natural_sort(items):
@@ -170,16 +177,16 @@ def natural_sort(items):
 
 
 def str2bool(v):
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+    if v.lower() in ("yes", "true", "t", "y", "1"):
         return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+    elif v.lower() in ("no", "false", "f", "n", "0"):
         return False
     else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+        raise argparse.ArgumentTypeError("Boolean value expected.")
 
 
 def find_class_in_module(target_cls_name, module):
-    target_cls_name = target_cls_name.replace('_', '').lower()
+    target_cls_name = target_cls_name.replace("_", "").lower()
     clslib = importlib.import_module(module)
     cls = None
     for name, clsobj in clslib.__dict__.items():
@@ -187,14 +194,17 @@ def find_class_in_module(target_cls_name, module):
             cls = clsobj
 
     if cls is None:
-        print("In %s, there should be a class whose name matches %s in lowercase without underscore(_)" % (module, target_cls_name))
+        print(
+            "In %s, there should be a class whose name matches %s in lowercase without underscore(_)"
+            % (module, target_cls_name)
+        )
         exit(0)
 
     return cls
 
 
 def save_network(net, label, epoch, opt):
-    save_filename = '%s_net_%s.pth' % (epoch, label)
+    save_filename = "%s_net_%s.pth" % (epoch, label)
     save_path = os.path.join(opt.checkpoints_dir, opt.name, save_filename)
     torch.save(net.cpu().state_dict(), save_path)
     if len(opt.gpu_ids) and torch.cuda.is_available():
@@ -202,12 +212,12 @@ def save_network(net, label, epoch, opt):
 
 
 def load_network(net, label, epoch, opt):
-    save_filename = '%s_net_%s.pth' % (epoch, label)
+    save_filename = "%s_net_%s.pth" % (epoch, label)
     save_dir = os.path.join(opt.checkpoints_dir, opt.name)
     save_path = os.path.join(save_dir, save_filename)
     weights = torch.load(save_path)
     net.load_state_dict(weights)
-    print('Load checkpoint from path: ', save_path)
+    print("Load checkpoint from path: ", save_path)
     return net
 
 
@@ -218,17 +228,51 @@ def load_network(net, label, epoch, opt):
 ###############################################################################
 def uint82bin(n, count=8):
     """returns the binary of integer n, count refers to amount of bits"""
-    return ''.join([str((n >> y) & 1) for y in range(count - 1, -1, -1)])
+    return "".join([str((n >> y) & 1) for y in range(count - 1, -1, -1)])
 
 
 def labelcolormap(N):
     if N == 35:  # cityscape
-        cmap = np.array([(0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (111, 74, 0), (81, 0, 81),
-                         (128, 64, 128), (244, 35, 232), (250, 170, 160), (230, 150, 140), (70, 70, 70), (102, 102, 156), (190, 153, 153),
-                         (180, 165, 180), (150, 100, 100), (150, 120, 90), (153, 153, 153), (153, 153, 153), (250, 170, 30), (220, 220, 0),
-                         (107, 142, 35), (152, 251, 152), (70, 130, 180), (220, 20, 60), (255, 0, 0), (0, 0, 142), (0, 0, 70),
-                         (0, 60, 100), (0, 0, 90), (0, 0, 110), (0, 80, 100), (0, 0, 230), (119, 11, 32), (0, 0, 142)],
-                        dtype=np.uint8)
+        cmap = np.array(
+            [
+                (0, 0, 0),
+                (0, 0, 0),
+                (0, 0, 0),
+                (0, 0, 0),
+                (0, 0, 0),
+                (111, 74, 0),
+                (81, 0, 81),
+                (128, 64, 128),
+                (244, 35, 232),
+                (250, 170, 160),
+                (230, 150, 140),
+                (70, 70, 70),
+                (102, 102, 156),
+                (190, 153, 153),
+                (180, 165, 180),
+                (150, 100, 100),
+                (150, 120, 90),
+                (153, 153, 153),
+                (153, 153, 153),
+                (250, 170, 30),
+                (220, 220, 0),
+                (107, 142, 35),
+                (152, 251, 152),
+                (70, 130, 180),
+                (220, 20, 60),
+                (255, 0, 0),
+                (0, 0, 142),
+                (0, 0, 70),
+                (0, 60, 100),
+                (0, 0, 90),
+                (0, 0, 110),
+                (0, 80, 100),
+                (0, 0, 230),
+                (119, 11, 32),
+                (0, 0, 142),
+            ],
+            dtype=np.uint8,
+        )
     else:
         cmap = np.zeros((N, 3), dtype=np.uint8)
         for i in range(N):
@@ -246,11 +290,11 @@ def labelcolormap(N):
 
         if N == 182:  # COCO
             important_colors = {
-                'sea': (54, 62, 167),
-                'sky-other': (95, 219, 255),
-                'tree': (140, 104, 47),
-                'clouds': (170, 170, 170),
-                'grass': (29, 195, 49)
+                "sea": (54, 62, 167),
+                "sky-other": (95, 219, 255),
+                "tree": (140, 104, 47),
+                "clouds": (170, 170, 170),
+                "grass": (29, 195, 49),
             }
             for i in range(N):
                 name = util.coco.id2label(i)

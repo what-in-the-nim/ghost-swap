@@ -1,2 +1,1 @@
-from .transducer import TransducerJoint
-from .transducer import TransducerLoss
+from .transducer import TransducerJoint, TransducerLoss

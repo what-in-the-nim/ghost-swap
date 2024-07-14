@@ -1,7 +1,7 @@
+import fast_layer_norm
 import torch
 from torch.nn import init
 
-import fast_layer_norm
 
 class FastLayerNormFN(torch.autograd.Function):
     @staticmethod
@@ -14,11 +14,11 @@ class FastLayerNormFN(torch.autograd.Function):
         ymat, mu, rsigma = fast_layer_norm.ln_fwd(xmat, gamma, beta, epsilon)
         ctx.save_for_backward(x, gamma, mu, rsigma)
         return ymat.view(x.shape)
-    
+
     @staticmethod
     def backward(ctx, dy):
-        #assert dy.is_contiguous()
-        dy = dy.contiguous() # this happens!
+        # assert dy.is_contiguous()
+        dy = dy.contiguous()  # this happens!
         x, gamma, mu, rsigma = ctx.saved_tensors
 
         hidden_size = gamma.numel()
@@ -27,6 +27,7 @@ class FastLayerNormFN(torch.autograd.Function):
         dxmat, dgamma, dbeta = fast_layer_norm.ln_bwd(dymat, xmat, mu, rsigma, gamma)
         dx = dxmat.view(x.shape)
         return dx, dgamma, dbeta, None
+
 
 class FastLayerNorm(torch.nn.Module):
     def __init__(self, hidden_size, eps=1e-5):

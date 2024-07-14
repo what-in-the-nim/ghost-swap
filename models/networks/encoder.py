@@ -3,15 +3,16 @@ Copyright (C) 2019 NVIDIA Corporation.  All rights reserved.
 Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode).
 """
 
-import torch.nn as nn
 import numpy as np
+import torch.nn as nn
 import torch.nn.functional as F
+
 from models.networks.base_network import BaseNetwork
 from models.networks.normalization import get_nonspade_norm_layer
 
 
 class ConvEncoder(BaseNetwork):
-    """ Same architecture as the image discriminator """
+    """Same architecture as the image discriminator"""
 
     def __init__(self, opt):
         super().__init__()
@@ -26,7 +27,9 @@ class ConvEncoder(BaseNetwork):
         self.layer4 = norm_layer(nn.Conv2d(ndf * 4, ndf * 8, kw, stride=2, padding=pw))
         self.layer5 = norm_layer(nn.Conv2d(ndf * 8, ndf * 8, kw, stride=2, padding=pw))
         if opt.crop_size >= 256:
-            self.layer6 = norm_layer(nn.Conv2d(ndf * 8, ndf * 8, kw, stride=2, padding=pw))
+            self.layer6 = norm_layer(
+                nn.Conv2d(ndf * 8, ndf * 8, kw, stride=2, padding=pw)
+            )
 
         self.so = s0 = 4
         self.fc_mu = nn.Linear(ndf * 8 * s0 * s0, 256)
@@ -37,7 +40,7 @@ class ConvEncoder(BaseNetwork):
 
     def forward(self, x):
         if x.size(2) != 256 or x.size(3) != 256:
-            x = F.interpolate(x, size=(256, 256), mode='bilinear')
+            x = F.interpolate(x, size=(256, 256), mode="bilinear")
 
         x = self.layer1(x)
         x = self.layer2(self.actvn(x))

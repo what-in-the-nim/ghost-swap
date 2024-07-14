@@ -1,17 +1,20 @@
+import functools
+import sys
+import warnings
+from types import MethodType
+
+import numpy as np
 import torch
 from torch._six import string_classes
-import functools
-import numpy as np
-import sys
-from types import MethodType
-import warnings
-from ._amp_state import _amp_state, warn_or_err, container_abcs
+
+from apex.fp16_utils import convert_network
+
+from ..contrib.optimizers import FP16_Optimizer as FP16_Optimizer_for_fused
+from ..fp16_utils import FP16_Optimizer as FP16_Optimizer_general
+from ._amp_state import _amp_state, container_abcs, warn_or_err
+from ._process_optimizer import _process_optimizer
 from .handle import disable_casts
 from .scaler import LossScaler
-from ._process_optimizer import _process_optimizer
-from apex.fp16_utils import convert_network
-from ..fp16_utils import FP16_Optimizer as FP16_Optimizer_general
-from ..contrib.optimizers import FP16_Optimizer as FP16_Optimizer_for_fused
 
 if torch.distributed.is_available():
     from ..parallel import DistributedDataParallel as apex_DDP
@@ -43,10 +46,10 @@ def applier(value, fn):
         return value
     elif isinstance(value, np.ndarray):
         return value
-    elif hasattr(value, "to"): # Allow handling of custom batch classes
+    elif hasattr(value, "to"):  # Allow handling of custom batch classes
         return fn(value)
     elif isinstance(value, container_abcs.Mapping):
-        return {applier(k, fn) : applier(v, fn) for k, v in value.items()}
+        return {applier(k, fn): applier(v, fn) for k, v in value.items()}
     elif isinstance(value, container_abcs.Iterable):
         return type(value)(applier(v, fn) for v in value)
     else:
@@ -66,54 +69,68 @@ def check_models(models):
         parallel_type = None
         if isinstance(model, torch.nn.parallel.DistributedDataParallel):
             parallel_type = "torch.nn.parallel.DistributedDataParallel"
-        if ('apex_DDP' in sys.modules) and isinstance(model, apex_DDP):
+        if ("apex_DDP" in sys.modules) and isinstance(model, apex_DDP):
             parallel_type = "apex.parallel.DistributedDataParallel"
         if isinstance(model, torch.nn.parallel.DataParallel):
             parallel_type = "torch.nn.parallel.DataParallel"
         if parallel_type is not None:
-            raise RuntimeError("Incoming model is an instance of {}. ".format(parallel_type) +
-                "Parallel wrappers should only be applied to the model(s) AFTER \n"
-                "the model(s) have been returned from amp.initialize.")
+            raise RuntimeError(
+                "Incoming model is an instance of {}. ".format(parallel_type)
+                + "Parallel wrappers should only be applied to the model(s) AFTER \n"
+                "the model(s) have been returned from amp.initialize."
+            )
 
 
 def check_params_fp32(models):
     for model in models:
         for name, param in model.named_parameters():
             if param.is_floating_point():
-                if 'Half' in param.type():
-                    warn_or_err("Found param {} with type {}, expected torch.cuda.FloatTensor.\n"
+                if "Half" in param.type():
+                    warn_or_err(
+                        "Found param {} with type {}, expected torch.cuda.FloatTensor.\n"
                         "When using amp.initialize, you do not need to call .half() on your model\n"
                         "before passing it, no matter what optimization level you choose.".format(
-                        name, param.type()))
+                            name, param.type()
+                        )
+                    )
                 elif not param.is_cuda:
-                    warn_or_err("Found param {} with type {}, expected torch.cuda.FloatTensor.\n"
+                    warn_or_err(
+                        "Found param {} with type {}, expected torch.cuda.FloatTensor.\n"
                         "When using amp.initialize, you need to provide a model with parameters\n"
                         "located on a CUDA device before passing it no matter what optimization level\n"
                         "you chose. Use model.to('cuda') to use the default device.".format(
-                        name, param.type()))
+                            name, param.type()
+                        )
+                    )
 
         # Backward compatibility for PyTorch 0.4
-        if hasattr(model, 'named_buffers'):
+        if hasattr(model, "named_buffers"):
             buf_iter = model.named_buffers()
         else:
             buf_iter = model._buffers
         for obj in buf_iter:
-            if type(obj)==tuple:
+            if type(obj) == tuple:
                 name, buf = obj
             else:
                 name, buf = obj, buf_iter[obj]
             if buf.is_floating_point():
-                if 'Half' in buf.type():
-                    warn_or_err("Found buffer {} with type {}, expected torch.cuda.FloatTensor.\n"
+                if "Half" in buf.type():
+                    warn_or_err(
+                        "Found buffer {} with type {}, expected torch.cuda.FloatTensor.\n"
                         "When using amp.initialize, you do not need to call .half() on your model\n"
                         "before passing it, no matter what optimization level you choose.".format(
-                        name, buf.type()))
+                            name, buf.type()
+                        )
+                    )
                 elif not buf.is_cuda:
-                    warn_or_err("Found buffer {} with type {}, expected torch.cuda.FloatTensor.\n"
+                    warn_or_err(
+                        "Found buffer {} with type {}, expected torch.cuda.FloatTensor.\n"
                         "When using amp.initialize, you need to provide a model with buffers\n"
                         "located on a CUDA device before passing it no matter what optimization level\n"
                         "you chose. Use model.to('cuda') to use the default device.".format(
-                        name, buf.type()))
+                            name, buf.type()
+                        )
+                    )
 
 
 def check_optimizers(optimizers):
@@ -124,10 +141,12 @@ def check_optimizers(optimizers):
         if isinstance(optim, FP16_Optimizer_for_fused):
             bad_optim_type = "apex.optimizers.FP16_Optimizer"
         if bad_optim_type is not None:
-            raise RuntimeError("An incoming optimizer is an instance of {}. ".format(bad_optim_type) +
-                               "The optimizer(s) passed to amp.initialize() must be bare \n"
-                               "instances of either ordinary Pytorch optimizers, or Apex fused \n"
-                               "optimizers.\n")
+            raise RuntimeError(
+                "An incoming optimizer is an instance of {}. ".format(bad_optim_type)
+                + "The optimizer(s) passed to amp.initialize() must be bare \n"
+                "instances of either ordinary Pytorch optimizers, or Apex fused \n"
+                "optimizers.\n"
+            )
 
 
 class O2StateDictHook(object):
@@ -137,7 +156,7 @@ class O2StateDictHook(object):
     def __call__(self, module, state_dict, prefix, local_metadata):
         for key in state_dict:
             param = state_dict[key]
-            if 'Half' in param.type():
+            if "Half" in param.type():
                 param = param.to(torch.float32)
                 state_dict[key] = param
 
@@ -146,7 +165,9 @@ def _initialize(models, optimizers, properties, num_losses=1, cast_model_outputs
     from .amp import init as amp_init
 
     optimizers_was_list = False
-    if isinstance(optimizers, torch.optim.Optimizer) or ('LARC' in globals() and isinstance(optimizers, LARC)):
+    if isinstance(optimizers, torch.optim.Optimizer) or (
+        "LARC" in globals() and isinstance(optimizers, LARC)
+    ):
         optimizers = [optimizers]
     elif optimizers is None:
         optimizers = []
@@ -155,7 +176,9 @@ def _initialize(models, optimizers, properties, num_losses=1, cast_model_outputs
         check_optimizers(optimizers)
     else:
         check_optimizers([optimizers])
-        raise TypeError("optimizers must be either a single optimizer or a list of optimizers.")
+        raise TypeError(
+            "optimizers must be either a single optimizer or a list of optimizers."
+        )
 
     if isinstance(models, torch.nn.Module):
         models_was_list = False
@@ -193,9 +216,11 @@ def _initialize(models, optimizers, properties, num_losses=1, cast_model_outputs
             # I like writing things explicitly more than decorators.
             def patch_forward(old_fwd):
                 def new_fwd(*args, **kwargs):
-                    output = old_fwd(*applier(args, input_caster),
-                                     **applier(kwargs, input_caster))
+                    output = old_fwd(
+                        *applier(args, input_caster), **applier(kwargs, input_caster)
+                    )
                     return applier(output, output_caster)
+
                 return new_fwd
 
             model.forward = patch_forward(model.forward)
@@ -207,16 +232,20 @@ def _initialize(models, optimizers, properties, num_losses=1, cast_model_outputs
         # patch model.state_dict() to return float32 params
         for model in models:
             for module in model.modules():
-                module._register_state_dict_hook(O2StateDictHook(functools.partial(to_type, torch.float32)))
+                module._register_state_dict_hook(
+                    O2StateDictHook(functools.partial(to_type, torch.float32))
+                )
 
     elif cast_model_outputs is not None:
         output_caster = functools.partial(to_type, cast_model_outputs)
 
         for model in models:
+
             def patch_forward(old_fwd):
                 def new_fwd(*args, **kwargs):
                     output = old_fwd(*args, **kwargs)
                     return applier(output, output_caster)
+
                 return new_fwd
 
             model.forward = patch_forward(model.forward)
@@ -226,13 +255,19 @@ def _initialize(models, optimizers, properties, num_losses=1, cast_model_outputs
 
     _amp_state.loss_scalers = []
     for _ in range(num_losses):
-        _amp_state.loss_scalers.append(LossScaler(properties.loss_scale,
-                                                  min_loss_scale=_amp_state.min_loss_scale,
-                                                  max_loss_scale=_amp_state.max_loss_scale))
+        _amp_state.loss_scalers.append(
+            LossScaler(
+                properties.loss_scale,
+                min_loss_scale=_amp_state.min_loss_scale,
+                max_loss_scale=_amp_state.max_loss_scale,
+            )
+        )
 
     if properties.patch_torch_functions:
         # handle is unused here. It's accessible later through a global value anyway.
-        handle = amp_init(loss_scale=properties.loss_scale, verbose=(_amp_state.verbosity == 2))
+        handle = amp_init(
+            loss_scale=properties.loss_scale, verbose=(_amp_state.verbosity == 2)
+        )
         for optimizer in optimizers:
             # Disable Amp casting for the optimizer step, because it should only be
             # applied to FP32 master params anyway.
@@ -241,6 +276,7 @@ def _initialize(models, optimizers, properties, num_losses=1, cast_model_outputs
                     with disable_casts():
                         output = old_step(*args, **kwargs)
                     return output
+
                 return new_step
 
             optimizer.step = MethodType(patch_step(optimizer.step), optimizer)

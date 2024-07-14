@@ -1,36 +1,44 @@
-import torch
-import torch.distributed as dist
-from torch.nn.modules import Module
-from torch.autograd import Variable
+import copy
 from collections import OrderedDict
 from itertools import chain
-import copy
-import importlib
+
+import torch
+import torch.distributed as dist
+from torch.autograd import Variable
+from torch.nn.modules import Module
+
 from ..multi_tensor_apply import multi_tensor_applier
 
 imported_flatten_impl = False
+
 
 def import_flatten_impl():
     global flatten_impl, unflatten_impl, imported_flatten_impl
     try:
         import apex_C
+
         flatten_impl = apex_C.flatten
         unflatten_impl = apex_C.unflatten
     except ImportError:
-        print("Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten.")
+        print(
+            "Warning:  apex was installed without --cpp_ext.  Falling back to Python flatten and unflatten."
+        )
         flatten_impl = torch._utils._flatten_dense_tensors
         unflatten_impl = torch._utils._unflatten_dense_tensors
     imported_flatten_impl = True
+
 
 def flatten(bucket):
     if not imported_flatten_impl:
         import_flatten_impl()
     return flatten_impl(bucket)
 
+
 def unflatten(coalesced, bucket):
     if not imported_flatten_impl:
         import_flatten_impl()
     return unflatten_impl(coalesced, bucket)
+
 
 # apply_dist_call requires that tensors in 'bucket' are all the same type.
 def apply_flat_dist_call(bucket, call, extra_args=None):
@@ -48,14 +56,20 @@ def apply_flat_dist_call(bucket, call, extra_args=None):
     for buf, synced in zip(bucket, unflatten(coalesced, bucket)):
         buf.copy_(synced)
 
+
 def split_half_float_double(tensors):
-    dtypes = ["torch.cuda.HalfTensor",  "torch.cuda.FloatTensor", "torch.cuda.DoubleTensor"]
+    dtypes = [
+        "torch.cuda.HalfTensor",
+        "torch.cuda.FloatTensor",
+        "torch.cuda.DoubleTensor",
+    ]
     buckets = []
     for i, dtype in enumerate(dtypes):
         bucket = [t for t in tensors if t.type() == dtype]
         if bucket:
             buckets.append(bucket)
     return buckets
+
 
 def split_by_type(tensors):
     buckets = OrderedDict()
@@ -65,6 +79,7 @@ def split_by_type(tensors):
             buckets[tp] = []
         buckets[tp].append(tensor)
     return buckets
+
 
 # flat_dist_call organizes 'tensors' by type.
 def flat_dist_call(tensors, call, extra_args=None):
@@ -111,7 +126,9 @@ class Reducer(object):
     def __init__(self, module_or_grads_list):
         if isinstance(module_or_grads_list, Module):
             self.module = module_or_grads_list
-            flat_dist_call([param.data for param in self.module.parameters()], dist.broadcast, (0,) )
+            flat_dist_call(
+                [param.data for param in self.module.parameters()], dist.broadcast, (0,)
+            )
 
         else:
             self.module = None
@@ -120,7 +137,11 @@ class Reducer(object):
 
     def reduce(self):
         if self.module:
-            grads = [param.grad.data for param in self.module.parameters() if param.grad is not None]
+            grads = [
+                param.grad.data
+                for param in self.module.parameters()
+                if param.grad is not None
+            ]
             flat_dist_call(grads, dist.all_reduce)
         else:
             flat_dist_call(self.grads, dist.all_reduce)
@@ -159,20 +180,22 @@ class DistributedDataParallel(Module):
 
     """
 
-    def __init__(self,
-                 module,
-                 message_size=10000000,
-                 delay_allreduce=False,
-                 shared_param=None,
-                 allreduce_trigger_params=None,
-                 retain_allreduce_buffers=False,
-                 allreduce_always_fp32=False,
-                 num_allreduce_streams=1,
-                 allreduce_communicators=None,
-                 gradient_average=True,
-                 gradient_predivide_factor=1.0,
-                 gradient_average_split_factor=None,
-                 prof=False):
+    def __init__(
+        self,
+        module,
+        message_size=10000000,
+        delay_allreduce=False,
+        shared_param=None,
+        allreduce_trigger_params=None,
+        retain_allreduce_buffers=False,
+        allreduce_always_fp32=False,
+        num_allreduce_streams=1,
+        allreduce_communicators=None,
+        gradient_average=True,
+        gradient_predivide_factor=1.0,
+        gradient_average_split_factor=None,
+        prof=False,
+    ):
         super(DistributedDataParallel, self).__init__()
 
         # Backward/forward compatibility around
@@ -188,11 +211,13 @@ class DistributedDataParallel(Module):
             self._backend = dist._backend
             self.backend_enum_holder = dist.dist_backend
 
-        self.warn_on_half = True if self._backend == self.backend_enum_holder.GLOO else False
+        self.warn_on_half = (
+            True if self._backend == self.backend_enum_holder.GLOO else False
+        )
 
         self.prof = prof
 
-        self.allreduce_different_streams = (num_allreduce_streams > 1)
+        self.allreduce_different_streams = num_allreduce_streams > 1
         self.num_allreduce_streams = num_allreduce_streams
         self.allreduce_communicators = allreduce_communicators
         if self.allreduce_communicators:
@@ -201,10 +226,14 @@ class DistributedDataParallel(Module):
             assert self.allreduce_different_streams
 
         if self.allreduce_different_streams and delay_allreduce:
-            raise ValueError("self.allreduce_different_streams may only be used if delay_allreduce=False.")
+            raise ValueError(
+                "self.allreduce_different_streams may only be used if delay_allreduce=False."
+            )
 
         if shared_param is not None:
-            raise ValueError("shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead.")
+            raise ValueError(
+                "shared_param is no longer supported as an option.  It was misleadingly named from the start.  It turns out overlapping communication with computation should work fine with shared parameters.  If you still wish to delay communication to the end of the backward pass, use delay_allreduce=True|False instead."
+            )
 
         self.world_size = float(dist.get_world_size())
 
@@ -216,9 +245,13 @@ class DistributedDataParallel(Module):
         self.custom_allreduce_triggers = False
         if allreduce_trigger_params is not None:
             if delay_allreduce:
-                raise ValueError("Setting allreduce_trigger_params is only valid if delay_allreduce=False.")
+                raise ValueError(
+                    "Setting allreduce_trigger_params is only valid if delay_allreduce=False."
+                )
             self.custom_allreduce_triggers = True
-            self.allreduce_trigger_params = set([id(param) for param in allreduce_trigger_params])
+            self.allreduce_trigger_params = set(
+                [id(param) for param in allreduce_trigger_params]
+            )
 
         self.delay_allreduce = delay_allreduce
         self.message_size = message_size
@@ -234,29 +267,37 @@ class DistributedDataParallel(Module):
 
         if self._backend == self.backend_enum_holder.NCCL:
             for param in self.module.parameters():
-                assert param.is_cuda, "NCCL backend only supports model parameters to be on GPU."
+                assert (
+                    param.is_cuda
+                ), "NCCL backend only supports model parameters to be on GPU."
 
         self.active_params = []
 
-        self.param_type_to_tmp_i = {"torch.cuda.HalfTensor" : 0,
-                                    "torch.cuda.FloatTensor" : 1,
-                                    "torch.cuda.DoubleTensor" : 2}
+        self.param_type_to_tmp_i = {
+            "torch.cuda.HalfTensor": 0,
+            "torch.cuda.FloatTensor": 1,
+            "torch.cuda.DoubleTensor": 2,
+        }
 
         if multi_tensor_applier.available:
             # TODO:  I really need to centralize the C++ backed imports
             import amp_C
+
             self.multi_tensor_scale = amp_C.multi_tensor_scale
             self._overflow_buf = torch.cuda.IntTensor([0])
 
         self.create_hooks()
 
-        flat_dist_call([param.data for param in self.module.parameters()], dist.broadcast, (0,) )
-
+        flat_dist_call(
+            [param.data for param in self.module.parameters()], dist.broadcast, (0,)
+        )
 
     def __setstate__(self, state):
         super(DistributedDataParallel, self).__setstate__(state)
         if self.allreduce_different_streams and delay_allreduce:
-            raise ValueError("self.allreduce_different_streams may only be used if delay_allreduce=False.")
+            raise ValueError(
+                "self.allreduce_different_streams may only be used if delay_allreduce=False."
+            )
 
         if self.delay_allreduce:
             self.needs_refresh = True
@@ -264,12 +305,11 @@ class DistributedDataParallel(Module):
         self.bucket_streams = []
         self.bucket_events = []
 
-
     def __getstate__(self):
         attrs = copy.copy(self.__dict__)
         if self._backend != self.backend_enum_holder.NCCL:
-            del attrs['self.bucket_streams']
-            del attrs['self.bucket_events']
+            del attrs["self.bucket_streams"]
+            del attrs["self.bucket_events"]
             return attrs
 
     def enable_allreduce(self):
@@ -289,32 +329,36 @@ class DistributedDataParallel(Module):
         self.num_buckets = len(self.active_i_buckets)
         self.bucket_sizes = [len(bucket) for bucket in self.active_i_buckets]
 
-        info_tensor = torch.cuda.IntTensor([self.num_buckets] +
-                                           self.bucket_sizes +
-                                           list(chain(*self.active_i_buckets)))
+        info_tensor = torch.cuda.IntTensor(
+            [self.num_buckets] + self.bucket_sizes + list(chain(*self.active_i_buckets))
+        )
 
         dist.broadcast(info_tensor, 0)
 
         info = [int(entry) for entry in info_tensor]
 
         self.num_buckets = info[0]
-        self.bucket_sizes = info[1:self.num_buckets + 1]
-        self.buckets = [[None for _ in range(self.bucket_sizes[i])]
-                        for i in range(self.num_buckets)]
+        self.bucket_sizes = info[1 : self.num_buckets + 1]
+        self.buckets = [
+            [None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)
+        ]
         # Technically, active_i_buckets' work is done.  But the information is still useful to
         # keep around.  Therefore, refresh active_i_buckets based on rank 0 as well.
-        self.active_i_buckets = [[None for _ in range(self.bucket_sizes[i])]
-                                 for i in range(self.num_buckets)]
+        self.active_i_buckets = [
+            [None for _ in range(self.bucket_sizes[i])] for i in range(self.num_buckets)
+        ]
 
-        flattened_buckets = info[self.num_buckets + 1:]
+        flattened_buckets = info[self.num_buckets + 1 :]
         flat_i = 0
         for bucket_idx in range(self.num_buckets):
             for bucket_loc in range(self.bucket_sizes[bucket_idx]):
                 param_i = flattened_buckets[flat_i]
                 self.active_i_buckets[bucket_idx][bucket_loc] = param_i
-                self.param_id_to_bucket[id(self.active_params[param_i])] = (bucket_idx, bucket_loc)
+                self.param_id_to_bucket[id(self.active_params[param_i])] = (
+                    bucket_idx,
+                    bucket_loc,
+                )
                 flat_i += 1
-
 
     def create_hooks(self):
         # Fallback hook that's only called at the end of backward.
@@ -331,7 +375,6 @@ class DistributedDataParallel(Module):
 
             self.allreduce_fallback()
 
-
         def overlapping_backward_epilogue():
             for stream, event in zip(self.bucket_streams, self.bucket_events):
                 stream.record_event(event)
@@ -339,18 +382,21 @@ class DistributedDataParallel(Module):
 
             # Sanity checks that all the buckets were kicked off
             if self.next_bucket != self.num_buckets:
-                raise RuntimeError("In epilogue, next_bucket ({}) != num_buckets ({}).  ".format(
-                                   self.next_bucket, self.num_buckets),
-                                   "This probably indicates some buckets were not allreduced.")
+                raise RuntimeError(
+                    "In epilogue, next_bucket ({}) != num_buckets ({}).  ".format(
+                        self.next_bucket, self.num_buckets
+                    ),
+                    "This probably indicates some buckets were not allreduced.",
+                )
 
             for actual, expected in zip(self.buckets_ready_size, self.bucket_sizes):
                 if actual != expected:
                     raise RuntimeError("Some param buckets were not allreduced.")
 
-
         self.grad_accs = []
         for param in self.module.parameters():
             if param.requires_grad:
+
                 def wrapper(param):
                     param_tmp = param.expand_as(param)
                     grad_acc = param_tmp.grad_fn.next_functions[0][0]
@@ -369,7 +415,9 @@ class DistributedDataParallel(Module):
                                     active_i = self.param_id_to_active_i[id(param)]
 
                                     # Float, half, and double tensors are grouped into buckets separately.
-                                    current_type = self.param_type_to_tmp_i[param.type()]
+                                    current_type = self.param_type_to_tmp_i[
+                                        param.type()
+                                    ]
 
                                     self.tmp_buckets[current_type].append(active_i)
 
@@ -379,22 +427,31 @@ class DistributedDataParallel(Module):
                                             ship_tmp_bucket = True
                                     else:
                                         self.tmp_numels[current_type] += param.numel()
-                                        if self.tmp_numels[current_type] >= self.message_size:
+                                        if (
+                                            self.tmp_numels[current_type]
+                                            >= self.message_size
+                                        ):
                                             ship_tmp_bucket = True
 
                                     # To consider:  If custom_allreduce_triggers are in use, ship all
                                     # tmp_buckets, not just tmp_buckets[current_type].
                                     if ship_tmp_bucket:
-                                        self.active_i_buckets.append(self.tmp_buckets[current_type])
+                                        self.active_i_buckets.append(
+                                            self.tmp_buckets[current_type]
+                                        )
                                         self.tmp_buckets[current_type] = []
                                         self.tmp_numels[current_type] = 0
 
                                 if not self.callback_queued:
-                                    Variable._execution_engine.queue_callback(allreduce_params)
+                                    Variable._execution_engine.queue_callback(
+                                        allreduce_params
+                                    )
                                     self.callback_queued = True
                             else:
                                 if not self.callback_queued:
-                                    Variable._execution_engine.queue_callback(overlapping_backward_epilogue)
+                                    Variable._execution_engine.queue_callback(
+                                        overlapping_backward_epilogue
+                                    )
                                     self.callback_queued = True
 
                                 self.comm_ready_buckets(param)
@@ -407,20 +464,17 @@ class DistributedDataParallel(Module):
 
                 wrapper(param)
 
-
     def _stream_this_bucket(self, bucket_idx):
         if self.allreduce_different_streams:
-            return self.bucket_streams[bucket_idx%self.num_allreduce_streams]
+            return self.bucket_streams[bucket_idx % self.num_allreduce_streams]
         else:
             return self.bucket_streams[0]
 
-
     def _event_this_bucket(self, bucket_idx):
         if self.allreduce_different_streams:
-            return self.bucket_events[bucket_idx%self.num_allreduce_streams]
+            return self.bucket_events[bucket_idx % self.num_allreduce_streams]
         else:
             return self.bucket_events[0]
-
 
     def allreduce_bucket(self, bucket, bucket_idx, force_default_stream):
         tensor = flatten(bucket)
@@ -443,15 +497,20 @@ class DistributedDataParallel(Module):
                 tensor_to_allreduce = tensor.float()
 
             if self.gradient_predivide_factor != 1.0:
-                tensor_to_allreduce.mul_(1./self.gradient_predivide_factor)
+                tensor_to_allreduce.mul_(1.0 / self.gradient_predivide_factor)
 
             if self.allreduce_different_streams and not force_default_stream:
-                dist.all_reduce(tensor_to_allreduce, group=self.bucket_pgs[bucket_idx%self.num_allreduce_streams])
+                dist.all_reduce(
+                    tensor_to_allreduce,
+                    group=self.bucket_pgs[bucket_idx % self.num_allreduce_streams],
+                )
             else:
                 dist.all_reduce(tensor_to_allreduce)
 
             if self.gradient_average:
-                tensor_to_allreduce.mul_(self.gradient_predivide_factor/self.world_size)
+                tensor_to_allreduce.mul_(
+                    self.gradient_predivide_factor / self.world_size
+                )
 
             if self.allreduce_always_fp32 and tensor is not tensor_to_allreduce:
                 tensor.copy_(tensor_to_allreduce)
@@ -462,7 +521,8 @@ class DistributedDataParallel(Module):
                         self.multi_tensor_scale,
                         self._overflow_buf,
                         [unflatten(tensor, bucket), bucket],
-                        1.0)
+                        1.0,
+                    )
                 else:
                     for buf, synced in zip(bucket, unflatten(tensor, bucket)):
                         buf.copy_(synced)
@@ -474,19 +534,19 @@ class DistributedDataParallel(Module):
 
         return tensor
 
-
     def allreduce_maybe_retain(self, bucket, bucket_idx, force_default_stream=False):
         allreduced = self.allreduce_bucket(bucket, bucket_idx, force_default_stream)
         if self.retain_allreduce_buffers:
             if self.allreduce_buffers[bucket_idx] is not None:
-                raise RuntimeError("The backward pass is attempting to replace an already-filled "
-                                   "allreduce buffer.  This is almost certainly an error.")
+                raise RuntimeError(
+                    "The backward pass is attempting to replace an already-filled "
+                    "allreduce buffer.  This is almost certainly an error."
+                )
             self.allreduce_buffers[bucket_idx] = allreduced
             for view, grad in zip(unflatten(allreduced, bucket), bucket):
                 grad.data = view
             # for buf, synced in zip(bucket, unflatten(allreduced, bucket)):
             #     buf.copy_(synced)
-
 
     def allreduce_fallback(self):
         for stream, event in zip(self.bucket_streams, self.bucket_events):
@@ -494,9 +554,17 @@ class DistributedDataParallel(Module):
             torch.cuda.current_stream().wait_event(event)
 
         if self.retain_allreduce_buffers:
-            grads = [param.grad for param in self.module.parameters() if param.grad is not None]
+            grads = [
+                param.grad
+                for param in self.module.parameters()
+                if param.grad is not None
+            ]
         else:
-            grads = [param.grad.data for param in self.module.parameters() if param.grad is not None]
+            grads = [
+                param.grad.data
+                for param in self.module.parameters()
+                if param.grad is not None
+            ]
 
         split_buckets = split_half_float_double(grads)
 
@@ -507,8 +575,9 @@ class DistributedDataParallel(Module):
             self.allreduce_buffers = [None for _ in range(len(split_buckets))]
 
         for i, bucket in enumerate(split_buckets):
-            allreduced = self.allreduce_maybe_retain(bucket, i, force_default_stream=True)
-
+            allreduced = self.allreduce_maybe_retain(
+                bucket, i, force_default_stream=True
+            )
 
     def comm_ready_buckets(self, param):
         # Need to do this in every hook for compatibility with Ruberry's streaming backward PR.
@@ -519,8 +588,10 @@ class DistributedDataParallel(Module):
         bucket_idx, bucket_loc = self.param_id_to_bucket[id(param)]
 
         if self.buckets[bucket_idx][bucket_loc] is not None:
-            raise RuntimeError("The backward pass is attempting to replace an already-filled "
-                               "bucket slot.  This is almost certainly an error.")
+            raise RuntimeError(
+                "The backward pass is attempting to replace an already-filled "
+                "bucket slot.  This is almost certainly an error."
+            )
 
         if self.retain_allreduce_buffers:
             self.buckets[bucket_idx][bucket_loc] = param.grad
@@ -555,7 +626,6 @@ class DistributedDataParallel(Module):
         if self.prof:
             torch.cuda.nvtx.range_pop()
 
-
     def forward(self, *inputs, **kwargs):
         result = self.module(*inputs, **kwargs)
 
@@ -564,24 +634,39 @@ class DistributedDataParallel(Module):
 
         if not self._disable_allreduce:
             if not self.delay_allreduce:
-                param_list = [param for param in self.module.parameters() if param.requires_grad]
+                param_list = [
+                    param for param in self.module.parameters() if param.requires_grad
+                ]
 
                 # Conditions under which to refresh self.record
                 # Forward has the authority to set needs_refresh to True, but only allreduce_params
                 # in backward has the authority to set needs_refresh to False.
                 # Parentheses are not necessary for correct order of operations, but make the intent clearer.
-                if ((not self.active_params) or
-                    (len(param_list) != len(self.active_params)) or
-                    any([param1 is not param2 for param1, param2 in zip(param_list, self.active_params)])):
+                if (
+                    (not self.active_params)
+                    or (len(param_list) != len(self.active_params))
+                    or any(
+                        [
+                            param1 is not param2
+                            for param1, param2 in zip(param_list, self.active_params)
+                        ]
+                    )
+                ):
                     self.needs_refresh = True
 
                 if self.needs_refresh:
                     self.active_i_buckets = []
                     self.buckets = []
-                    self.tmp_buckets = [[], [], []] # [running half, float, double buckets]
+                    self.tmp_buckets = [
+                        [],
+                        [],
+                        [],
+                    ]  # [running half, float, double buckets]
                     self.tmp_numels = [0, 0, 0]
                     self.bucket_sizes = []
-                    self.param_id_to_active_i = {id(param) : i for i, param in enumerate(param_list)}
+                    self.param_id_to_active_i = {
+                        id(param): i for i, param in enumerate(param_list)
+                    }
                     self.param_id_to_bucket = {}
                     self.bucket_pgs = []
                     self.bucket_streams = []
@@ -590,41 +675,68 @@ class DistributedDataParallel(Module):
                     # self.buckets = [[None for _ in range(self.bucket_sizes[i])]
                     #                 for i in range(self.num_buckets)]
                     if not self.buckets:
-                        self.buckets = [[None for _ in range(self.bucket_sizes[i])]
-                                        for i in range(self.num_buckets)]
+                        self.buckets = [
+                            [None for _ in range(self.bucket_sizes[i])]
+                            for i in range(self.num_buckets)
+                        ]
                     else:
-                        assert len(self.buckets) == self.num_buckets, "len(buckets) = {}, expected {}".format(
-                            len(self.buckets), self.num_buckets)
+                        assert (
+                            len(self.buckets) == self.num_buckets
+                        ), "len(buckets) = {}, expected {}".format(
+                            len(self.buckets), self.num_buckets
+                        )
                         for b, bucket in enumerate(self.buckets):
-                            assert len(bucket) == self.bucket_sizes[b], "len(buckets[{}]) = {}, expected {})".format(
-                                b, len(buckets[b]), self.bucket_sizes[b])
+                            assert (
+                                len(bucket) == self.bucket_sizes[b]
+                            ), "len(buckets[{}]) = {}, expected {})".format(
+                                b, len(buckets[b]), self.bucket_sizes[b]
+                            )
                             for i in range(len(bucket)):
                                 bucket[i] = None
 
                     if self.allreduce_communicators:
                         self.bucket_pgs = self.allreduce_communicators[0]
                         self.bucket_streams = self.allreduce_communicators[1]
-                        self.bucket_events = [torch.cuda.Event(enable_timing=False,
-                                            blocking=False) for _ in range(self.num_allreduce_streams)]
+                        self.bucket_events = [
+                            torch.cuda.Event(enable_timing=False, blocking=False)
+                            for _ in range(self.num_allreduce_streams)
+                        ]
                     else:
                         if self.allreduce_different_streams:
                             if not self.bucket_pgs:
-                                self.bucket_pgs = [dist.new_group() for _ in range(self.num_allreduce_streams)]
+                                self.bucket_pgs = [
+                                    dist.new_group()
+                                    for _ in range(self.num_allreduce_streams)
+                                ]
                                 for i, bg in enumerate(self.bucket_pgs):
-                                    print("rank {} created group {} with backend {}".format(
-                                          dist.get_rank(), i, dist.get_backend(bg)))
+                                    print(
+                                        "rank {} created group {} with backend {}".format(
+                                            dist.get_rank(), i, dist.get_backend(bg)
+                                        )
+                                    )
                         if self.allreduce_different_streams:
                             if not self.bucket_streams:
-                                self.bucket_streams = [torch.cuda.Stream() for _ in range(self.num_allreduce_streams)]
-                                self.bucket_events = [torch.cuda.Event(enable_timing=False,
-                                                      blocking=False) for _ in range(self.num_allreduce_streams)]
+                                self.bucket_streams = [
+                                    torch.cuda.Stream()
+                                    for _ in range(self.num_allreduce_streams)
+                                ]
+                                self.bucket_events = [
+                                    torch.cuda.Event(
+                                        enable_timing=False, blocking=False
+                                    )
+                                    for _ in range(self.num_allreduce_streams)
+                                ]
                         else:
                             if not self.bucket_streams:
                                 self.bucket_streams = [torch.cuda.Stream()]
-                                self.bucket_events = [torch.cuda.Event(enable_timing=False, blocking=False)]
+                                self.bucket_events = [
+                                    torch.cuda.Event(
+                                        enable_timing=False, blocking=False
+                                    )
+                                ]
 
                     self.buckets_ready_size = [0 for i in range(self.num_buckets)]
-                    if(self.retain_allreduce_buffers):
+                    if self.retain_allreduce_buffers:
                         self.allreduce_buffers = [None for _ in range(self.num_buckets)]
                     self.next_bucket = 0
                     self.ready_buckets_not_reduced = set()

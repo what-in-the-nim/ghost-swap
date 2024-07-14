@@ -1,7 +1,9 @@
-import torch
-from ._initialize import _initialize
-from ._amp_state import _amp_state, warn_or_err, maybe_print
 from collections import OrderedDict
+
+import torch
+
+from ._amp_state import _amp_state, maybe_print, warn_or_err
+from ._initialize import _initialize
 
 
 class Properties(object):
@@ -10,19 +12,20 @@ class Properties(object):
     and to route setting of these attributes through __setattr__ so that (in theory)
     they can be checked for consistency with other existing args.
     """
+
     def __init__(self):
         self.options = {
-            "enabled" : False,
-            "opt_level" : None,
-            "cast_model_type" : None,
-            "patch_torch_functions" : False,
-            "keep_batchnorm_fp32" : None,
-            "master_weights" : None,
-            "loss_scale" : 1.0,
+            "enabled": False,
+            "opt_level": None,
+            "cast_model_type": None,
+            "patch_torch_functions": False,
+            "keep_batchnorm_fp32": None,
+            "master_weights": None,
+            "loss_scale": 1.0,
             # Reserved for future functionality
             # "fused_optimizer" : False,
             # "enable_ddp_interop" : False,
-            }
+        }
 
     """
     This function allows updating several options at a time without routing through
@@ -30,23 +33,27 @@ class Properties(object):
     Currently not intended to be exposed; users are expected to select an opt_level
     and apply consistent modifications.
     """
+
     def _update_options_dict(self, new_options):
         for k, v in new_options:
             if k in self.options:
                 self.options[k] = v
             else:
                 raise ValueError("Tried to set unexpected option {}".format(k))
+
     """
     The members of "options" are not direct attributes of self, so access attempts
     will roll down to __getattr__.  This borrows from the logic in torch.nn.Module.
     """
+
     def __getattr__(self, name):
         if "options" in self.__dict__:
-            options =  self.__dict__["options"]
+            options = self.__dict__["options"]
             if name in options:
                 return options[name]
-        raise AttributeError("'{}' object has no attribute '{}'".format(
-            type(self).__name__, name))
+        raise AttributeError(
+            "'{}' object has no attribute '{}'".format(type(self).__name__, name)
+        )
 
     def __setattr__(self, name, value):
         if "options" in self.__dict__:
@@ -56,35 +63,44 @@ class Properties(object):
                     if self.opt_level == "O1" and value is not None:
                         if value is not False:
                             if value is not torch.float32:
-                                warn_or_err("O1 inserts casts around Torch functions rather than "
-                                            "model weights, so with O1, the model weights themselves "
-                                            "should remain FP32. If you wish to cast the model to a "
-                                            "different type, use opt_level='O2' or 'O3'. " +
-                                            "cast_model_type was {}".format(value))
+                                warn_or_err(
+                                    "O1 inserts casts around Torch functions rather than "
+                                    "model weights, so with O1, the model weights themselves "
+                                    "should remain FP32. If you wish to cast the model to a "
+                                    "different type, use opt_level='O2' or 'O3'. "
+                                    + "cast_model_type was {}".format(value)
+                                )
                     self.options[name] = value
                 elif name == "patch_torch_functions":
                     if self.opt_level != "O1" and value:
-                        warn_or_err("Currently, patch_torch_functions=True should only be set by "
-                                    "selecting opt_level='O1'.")
+                        warn_or_err(
+                            "Currently, patch_torch_functions=True should only be set by "
+                            "selecting opt_level='O1'."
+                        )
                     self.options[name] = value
                 elif name == "keep_batchnorm_fp32":
                     if self.opt_level == "O1" and value is not None:
-                        warn_or_err("With opt_level O1, batchnorm functions are automatically patched "
-                                    "to run in FP32, so keep_batchnorm_fp32 should be None." +
-                                    " keep_batchnorm_fp32 was {}".format(value))
+                        warn_or_err(
+                            "With opt_level O1, batchnorm functions are automatically patched "
+                            "to run in FP32, so keep_batchnorm_fp32 should be None."
+                            + " keep_batchnorm_fp32 was {}".format(value)
+                        )
                     if value == "False":
                         self.options[name] = False
                     elif value == "True":
                         self.options[name] = True
                     else:
-                        assert (value is True or value is False or value is None),\
-                            "keep_batchnorm_fp32 must be a boolean, the string 'True' or 'False', "\
+                        assert value is True or value is False or value is None, (
+                            "keep_batchnorm_fp32 must be a boolean, the string 'True' or 'False', "
                             "or None, found keep_batchnorm_fp32={}".format(value)
+                        )
                         self.options[name] = value
                 elif name == "master_weights":
                     if self.opt_level == "O1" and value is not None:
-                        warn_or_err("It doesn't make sense to use master_weights with O1. "
-                                    "With O1, your model weights themselves should be FP32.")
+                        warn_or_err(
+                            "It doesn't make sense to use master_weights with O1. "
+                            "With O1, your model weights themselves should be FP32."
+                        )
                     self.options[name] = value
                 elif name == "loss_scale":
                     if value == "dynamic":
@@ -99,14 +115,17 @@ class Properties(object):
 
 """ O0-O3 are convenience wrappers to establish defaults for typically used mixed precision options. """
 
+
 class O3:
     brief = "O3:  Pure FP16 training."
-    more = "Calls .half() on your model, converting the entire model to FP16.\n"\
-        "A casting operation is also inserted to cast incoming Tensors to FP16,\n"\
-        "so you don't need to change your data pipeline.\n"\
-        "This mode is useful for establishing a performance ceiling.\n"\
-        "It's also possible training may 'just work' in this mode.\n"\
+    more = (
+        "Calls .half() on your model, converting the entire model to FP16.\n"
+        "A casting operation is also inserted to cast incoming Tensors to FP16,\n"
+        "so you don't need to change your data pipeline.\n"
+        "This mode is useful for establishing a performance ceiling.\n"
+        "It's also possible training may 'just work' in this mode.\n"
         "If not, try other optimization levels."
+    )
 
     def __call__(self, properties):
         properties.enabled = True
@@ -118,18 +137,20 @@ class O3:
         properties.loss_scale = 1.0
         # properties.fused_optimizer = False
         # properties.enable_ddp_interop = False
-        return properties # modified in place so this isn't really necessary
+        return properties  # modified in place so this isn't really necessary
 
 
 class O2:
     brief = "O2:  FP16 training with FP32 batchnorm and FP32 master weights.\n"
-    more = "Calls .half() on your model, converting the entire model (except for batchnorms)\n"\
-        "to FP16.  Batchnorms are retained in FP32 for additional stability.\n"\
-        "The forward pass is patched to cast incoming Tensors to FP16, so you don't need to change\n"\
-        "your data pipeline.\n"\
-        "O2 creates FP32 master weights outside the model and patches any optimizers to update\n"\
-        "these master weights, then copy the master weights into the FP16 model weights.\n"\
+    more = (
+        "Calls .half() on your model, converting the entire model (except for batchnorms)\n"
+        "to FP16.  Batchnorms are retained in FP32 for additional stability.\n"
+        "The forward pass is patched to cast incoming Tensors to FP16, so you don't need to change\n"
+        "your data pipeline.\n"
+        "O2 creates FP32 master weights outside the model and patches any optimizers to update\n"
+        "these master weights, then copy the master weights into the FP16 model weights.\n"
         "Master weights can also improve convergence and stability."
+    )
 
     def __call__(self, properties):
         properties.enabled = True
@@ -141,17 +162,19 @@ class O2:
         properties.loss_scale = "dynamic"
         # properties.fused_optimizer = False
         # properties.enable_ddp_interop = False
-        return properties # modified in place so this isn't really necessary
+        return properties  # modified in place so this isn't really necessary
 
 
 class O1:
     brief = "O1:  Insert automatic casts around Pytorch functions and Tensor methods.\n"
-    more = "The type of your model's weights is not altered.  However, internally,\n"\
-        "Pytorch functions are patched to cast any Tensor Core-friendly ops to FP16 for speed,\n"\
-        "while operations that might benefit from the additional stability of FP32 are patched\n"\
-        "to cast their inputs to fp32.\n"\
-        "O1 is the safest way to try mixed precision training, and is recommended when\n"\
+    more = (
+        "The type of your model's weights is not altered.  However, internally,\n"
+        "Pytorch functions are patched to cast any Tensor Core-friendly ops to FP16 for speed,\n"
+        "while operations that might benefit from the additional stability of FP32 are patched\n"
+        "to cast their inputs to fp32.\n"
+        "O1 is the safest way to try mixed precision training, and is recommended when\n"
         "trying mixed precision training for the first time."
+    )
 
     def __call__(self, properties):
         properties.enabled = True
@@ -163,14 +186,16 @@ class O1:
         properties.loss_scale = "dynamic"
         # properties.fused_optimizer = False
         # properties.enable_ddp_interop = False
-        return properties # modified in place so this isn't really necessary
+        return properties  # modified in place so this isn't really necessary
 
 
 class O0:
     brief = "O0:  Pure FP32 training.\n"
-    more = "Your models are checked to make sure parameters are FP32, but otherwise the\n"\
-        "types of weights and internal Pytorch operations are not altered.  This mode disables any\n"\
+    more = (
+        "Your models are checked to make sure parameters are FP32, but otherwise the\n"
+        "types of weights and internal Pytorch operations are not altered.  This mode disables any\n"
         "FP16 arithmetic, although other optimizations like DDP interop may still be requested.\n"
+    )
 
     def __call__(self, properties):
         properties.enabled = True
@@ -182,13 +207,10 @@ class O0:
         properties.loss_scale = 1.0
         # properties.fused_optimizer = False
         # properties.enable_ddp_interop = False
-        return properties # modified in place so this isn't really necessary
+        return properties  # modified in place so this isn't really necessary
 
 
-opt_levels = {"O3": O3(),
-              "O2": O2(),
-              "O1": O1(),
-              "O0": O0()}
+opt_levels = {"O3": O3(), "O2": O2(), "O1": O1(), "O0": O0()}
 
 
 # allow user to directly pass Properties struct as well?
@@ -206,8 +228,8 @@ def initialize(
     num_losses=1,
     verbosity=1,
     min_loss_scale=None,
-    max_loss_scale=2.**24
-    ):
+    max_loss_scale=2.0**24,
+):
     """
     Initialize your models, optimizers, and the Torch tensor and functional namespace according to the
     chosen ``opt_level`` and overridden properties, if any.
@@ -315,17 +337,19 @@ def initialize(
             return models, optimizers
 
     if not torch.backends.cudnn.enabled:
-        raise RuntimeError(
-            "Amp requires torch.backends.cudnn.enabled = True")
+        raise RuntimeError("Amp requires torch.backends.cudnn.enabled = True")
 
     if opt_level not in opt_levels:
         raise RuntimeError(
-            "Unexpected optimization level {}. ".format(opt_level) +
-            "Options are 'O0', 'O1', 'O2', 'O3'.  Note that in `O0`, `O1`, etc., the prefix O is the letter O, " +
-            "not the number zero.")
+            "Unexpected optimization level {}. ".format(opt_level)
+            + "Options are 'O0', 'O1', 'O2', 'O3'.  Note that in `O0`, `O1`, etc., the prefix O is the letter O, "
+            + "not the number zero."
+        )
     else:
         _amp_state.opt_properties = opt_levels[opt_level](_amp_state.opt_properties)
-        maybe_print("Selected optimization level {}".format(opt_levels[opt_level].brief), True)
+        maybe_print(
+            "Selected optimization level {}".format(opt_levels[opt_level].brief), True
+        )
         maybe_print("Defaults for this optimization level are:", True)
         for k, v in _amp_state.opt_properties.options.items():
             maybe_print("{:22} : {}".format(k, v), True)
@@ -333,7 +357,9 @@ def initialize(
     _amp_state.min_loss_scale = min_loss_scale
     _amp_state.max_loss_scale = max_loss_scale
 
-    maybe_print("Processing user overrides (additional kwargs that are not None)...", True)
+    maybe_print(
+        "Processing user overrides (additional kwargs that are not None)...", True
+    )
     # I chose to have the keyword arguments listed directly in the argument list,
     # instead of **kwargs, so I can't use kwargs.items() here.
     if enabled is not None:
@@ -355,7 +381,9 @@ def initialize(
     for k, v in _amp_state.opt_properties.options.items():
         maybe_print("{:22} : {}".format(k, v), True)
 
-    return _initialize(models, optimizers, _amp_state.opt_properties, num_losses, cast_model_outputs)
+    return _initialize(
+        models, optimizers, _amp_state.opt_properties, num_losses, cast_model_outputs
+    )
 
 
 def state_dict(destination=None):
@@ -363,9 +391,9 @@ def state_dict(destination=None):
         destination = OrderedDict()
 
     for idx, loss_scaler in enumerate(_amp_state.loss_scalers):
-        destination['loss_scaler%d' % idx] = {
-            'loss_scale': loss_scaler.loss_scale(),
-            'unskipped': loss_scaler._unskipped,
+        destination["loss_scaler%d" % idx] = {
+            "loss_scale": loss_scaler.loss_scale(),
+            "unskipped": loss_scaler._unskipped,
         }
     return destination
 
@@ -373,31 +401,39 @@ def state_dict(destination=None):
 def load_state_dict(state_dict):
     # Check if state_dict containes the same number of loss_scalers as current setup
     if len(state_dict) != len(_amp_state.loss_scalers):
-        print('Warning: state_dict contains {} entries, while {} loss_scalers are used'.format(
-            len(state_dict), len(_amp_state.loss_scalers)))
+        print(
+            "Warning: state_dict contains {} entries, while {} loss_scalers are used".format(
+                len(state_dict), len(_amp_state.loss_scalers)
+            )
+        )
 
     state_dict = state_dict.copy()
-    
+
     nb_loss_scalers = len(_amp_state.loss_scalers)
     unexpected_keys = []
     # Initialize idx outside, since unexpected_keys will increase it if enumerate is used
     idx = 0
     for key in state_dict:
-        if 'loss_scaler' not in key:
+        if "loss_scaler" not in key:
             unexpected_keys.append(key)
         else:
             if idx > (nb_loss_scalers - 1):
-                print('Skipping loss_scaler[{}], since num_losses was set to {}'.format(
-                    idx, nb_loss_scalers))
+                print(
+                    "Skipping loss_scaler[{}], since num_losses was set to {}".format(
+                        idx, nb_loss_scalers
+                    )
+                )
                 break
-            _amp_state.loss_scalers[idx]._loss_scale = state_dict[key]['loss_scale']
-            _amp_state.loss_scalers[idx]._unskipped = state_dict[key]['unskipped']
+            _amp_state.loss_scalers[idx]._loss_scale = state_dict[key]["loss_scale"]
+            _amp_state.loss_scalers[idx]._unskipped = state_dict[key]["unskipped"]
             idx += 1
 
     if len(unexpected_keys) > 0:
         raise RuntimeError(
-            'Error(s) in loading state_dict. Unexpected key(s) in state_dict: {}. '.format(
-                ', '.join('"{}"'.format(k) for k in unexpected_keys)))
+            "Error(s) in loading state_dict. Unexpected key(s) in state_dict: {}. ".format(
+                ", ".join('"{}"'.format(k) for k in unexpected_keys)
+            )
+        )
 
 
 # TODO:  is this necessary/useful?

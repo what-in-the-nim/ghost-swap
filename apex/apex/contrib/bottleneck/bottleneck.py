@@ -1,15 +1,20 @@
+import fast_bottleneck
 import torch
 from torch import nn
-import fast_bottleneck
 
-def kaiming_uniform_(tensor, a=0, mode='fan_in', nonlinearity='leaky_relu'):
+
+def kaiming_uniform_(tensor, a=0, mode="fan_in", nonlinearity="leaky_relu"):
     weight_tensor_nchw = tensor
-    nn.init.kaiming_uniform_(weight_tensor_nchw, a=a, mode=mode, nonlinearity=nonlinearity)
+    nn.init.kaiming_uniform_(
+        weight_tensor_nchw, a=a, mode=mode, nonlinearity=nonlinearity
+    )
+
 
 class FrozenBatchNorm2d(torch.nn.Module):
     """
     BatchNorm2d where the batch statistics and the affine parameters are fixed
     """
+
     def __init__(self, n):
         super(FrozenBatchNorm2d, self).__init__()
         self.register_buffer("weight", torch.ones(n))
@@ -35,18 +40,20 @@ class FrozenBatchNorm2d(torch.nn.Module):
 
 @torch.jit.script
 def drelu_dscale1(grad_o, output, scale1):
-    relu_mask = (output>0).half()
+    relu_mask = (output > 0).half()
     dx_relu = relu_mask * grad_o
     g1 = dx_relu * scale1
     return g1, dx_relu
 
+
 @torch.jit.script
 def drelu_dscale2(grad_o, output, scale1, scale2):
-    relu_mask = (output>0).half()
+    relu_mask = (output > 0).half()
     dx_relu = relu_mask * grad_o
     g1 = dx_relu * scale1
     g2 = dx_relu * scale2
     return g1, g2
+
 
 class BottleneckFunction(torch.autograd.Function):
     @staticmethod
@@ -63,7 +70,7 @@ class BottleneckFunction(torch.autograd.Function):
         # here we pass in flag and let c++ handle it
         # alternatively, we can put all sizes into a fixed format and pass it in
         outputs = fast_bottleneck.forward(nhwc, stride_1x1, args)
-        ctx.save_for_backward(*(args+outputs))
+        ctx.save_for_backward(*(args + outputs))
         # save relu outputs for drelu
         ctx.nhwc = nhwc
         ctx.stride_1x1 = stride_1x1
@@ -76,9 +83,13 @@ class BottleneckFunction(torch.autograd.Function):
         outputs = ctx.saved_tensors[-3:]
 
         if ctx.downsample:
-            grad_conv3, grad_conv4 = drelu_dscale2(grad_o, outputs[2], ctx.saved_tensors[6], ctx.saved_tensors[11])
+            grad_conv3, grad_conv4 = drelu_dscale2(
+                grad_o, outputs[2], ctx.saved_tensors[6], ctx.saved_tensors[11]
+            )
         else:
-            grad_conv3, grad_conv4 = drelu_dscale1(grad_o, outputs[2], ctx.saved_tensors[6])
+            grad_conv3, grad_conv4 = drelu_dscale1(
+                grad_o, outputs[2], ctx.saved_tensors[6]
+            )
 
         # create input vector for backward
         t_list = [*ctx.saved_tensors[0:10]]
@@ -97,16 +108,28 @@ class BottleneckFunction(torch.autograd.Function):
 
         return (None, None, None, None, *grads)
 
+
 bottleneck_function = BottleneckFunction.apply
+
 
 def conv3x3(in_planes, out_planes, stride=1, groups=1, dilation=1):
     """3x3 convolution with padding"""
-    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                     padding=dilation, groups=groups, bias=False, dilation=dilation)
+    return nn.Conv2d(
+        in_planes,
+        out_planes,
+        kernel_size=3,
+        stride=stride,
+        padding=dilation,
+        groups=groups,
+        bias=False,
+        dilation=dilation,
+    )
+
 
 def conv1x1(in_planes, out_planes, stride=1):
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
 
 class Bottleneck(torch.nn.Module):
     # Bottleneck in torchvision places the stride for downsampling at 3x3 convolution(self.conv2)
@@ -116,17 +139,27 @@ class Bottleneck(torch.nn.Module):
     # https://ngc.nvidia.com/catalog/model-scripts/nvidia:resnet_50_v1_5_for_pytorch.
     # here we put it at 1x1
 
-    def __init__(self, in_channels, bottleneck_channels, out_channels, stride=1, groups=1,
-                 dilation=1, norm_func=None, use_cudnn=False, explicit_nhwc=False):
+    def __init__(
+        self,
+        in_channels,
+        bottleneck_channels,
+        out_channels,
+        stride=1,
+        groups=1,
+        dilation=1,
+        norm_func=None,
+        use_cudnn=False,
+        explicit_nhwc=False,
+    ):
         super(Bottleneck, self).__init__()
         if groups != 1:
-            raise RuntimeError('Only support groups == 1')
+            raise RuntimeError("Only support groups == 1")
         if dilation != 1:
-            raise RuntimeError('Only support dilation == 1')
+            raise RuntimeError("Only support dilation == 1")
         if norm_func == None:
             norm_func = FrozenBatchNorm2d
         else:
-            raise RuntimeError('Only support frozen BN now.')
+            raise RuntimeError("Only support frozen BN now.")
 
         if stride != 1 or in_channels != out_channels:
             self.downsample = nn.Sequential(
@@ -168,7 +201,7 @@ class Bottleneck(torch.nn.Module):
         if self.explicit_nhwc:
             for p in self.parameters():
                 with torch.no_grad():
-                    p.data = p.data.permute(0,2,3,1).contiguous()
+                    p.data = p.data.permute(0, 2, 3, 1).contiguous()
         return
 
     def forward(self, x):
@@ -185,11 +218,13 @@ class Bottleneck(torch.nn.Module):
                 w_scale.append(s4)
                 w_bias.append(b4)
 
-            out = bottleneck_function(self.explicit_nhwc, self.stride, w_scale, w_bias, x, *self.w_conv)
+            out = bottleneck_function(
+                self.explicit_nhwc, self.stride, w_scale, w_bias, x, *self.w_conv
+            )
             return out
 
         if self.explicit_nhwc:
-            raise RuntimeError('explicit nhwc with native ops is not supported.')
+            raise RuntimeError("explicit nhwc with native ops is not supported.")
 
         # fallback to native ops
         identity = x

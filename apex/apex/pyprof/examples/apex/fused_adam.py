@@ -1,10 +1,11 @@
-import torch
 import fused_adam_cuda
-from apex.optimizers import FusedAdam, FP16_Optimizer
+import torch
+
 from apex import pyprof
+from apex.optimizers import FP16_Optimizer, FusedAdam
 
 pyprof.nvtx.init()
-pyprof.nvtx.wrap(fused_adam_cuda, 'adam')
+pyprof.nvtx.wrap(fused_adam_cuda, "adam")
 
 model = torch.nn.Linear(10, 20).cuda().half()
 criterion = torch.nn.CrossEntropyLoss().cuda()

@@ -1,15 +1,14 @@
-import unittest
-
 import functools as ft
 import itertools as it
+import unittest
+
+import torch
+import torch.nn.functional as F
+from torch import nn
 
 from apex import amp
-import torch
-from torch import nn
-import torch.nn.functional as F
+from utils import ALWAYS_FLOAT, ALWAYS_HALF, FLOAT, MATCH_INPUT, common_init
 
-from utils import common_init, HALF, FLOAT,\
-    ALWAYS_HALF, ALWAYS_FLOAT, MATCH_INPUT
 
 def run_layer_test(test_case, fns, expected, input_shape, test_backward=True):
     for fn, typ in it.product(fns, expected.keys()):
@@ -19,6 +18,7 @@ def run_layer_test(test_case, fns, expected, input_shape, test_backward=True):
         if test_backward:
             y.float().sum().backward()
             test_case.assertEqual(x.grad.type(), MATCH_INPUT[typ])
+
 
 class TestBasicCasts(unittest.TestCase):
     def setUp(self):
@@ -60,16 +60,34 @@ class TestBasicCasts(unittest.TestCase):
 
     def test_batch_norm_is_match(self):
         m = nn.BatchNorm2d(num_features=self.c)
-        f = ft.partial(F.batch_norm, running_mean=m.running_mean, running_var=m.running_var,
-                       weight=m.weight, bias=m.bias, training=True)
+        f = ft.partial(
+            F.batch_norm,
+            running_mean=m.running_mean,
+            running_var=m.running_var,
+            weight=m.weight,
+            bias=m.bias,
+            training=True,
+        )
         run_layer_test(self, [m], MATCH_INPUT, (self.b, self.c, self.h, self.h))
 
         # Test forward-only for BN inference
         m.eval()
-        f = ft.partial(F.batch_norm, running_mean=m.running_mean, running_var=m.running_var,
-                       weight=m.weight, bias=m.bias, training=False)
-        run_layer_test(self, [m, f], MATCH_INPUT, (self.b, self.c, self.h, self.h),
-                            test_backward=False)
+        f = ft.partial(
+            F.batch_norm,
+            running_mean=m.running_mean,
+            running_var=m.running_var,
+            weight=m.weight,
+            bias=m.bias,
+            training=False,
+        )
+        run_layer_test(
+            self,
+            [m, f],
+            MATCH_INPUT,
+            (self.b, self.c, self.h, self.h),
+            test_backward=False,
+        )
+
 
 class TestBannedMethods(unittest.TestCase):
     def setUp(self):
@@ -99,6 +117,7 @@ class TestBannedMethods(unittest.TestCase):
         assertion = lambda fn, x: self.assertEqual(fn(x).type(), FLOAT)
         self.bce_common(assertion)
 
+
 class TestTensorCasts(unittest.TestCase):
     def setUp(self):
         self.handle = amp.init(enabled=True)
@@ -120,17 +139,19 @@ class TestTensorCasts(unittest.TestCase):
         run_layer_test(self, [lhs, rhs], ALWAYS_HALF, (self.h, self.h))
 
     def test_pow_method_is_float(self):
-        fn = lambda x: x.pow(2.)
+        fn = lambda x: x.pow(2.0)
         run_layer_test(self, [fn], ALWAYS_FLOAT, (self.b, self.h))
 
     def test_pow_op_is_float(self):
-        fn = lambda x: x ** 2.
+        fn = lambda x: x**2.0
         run_layer_test(self, [fn], ALWAYS_FLOAT, (self.b, self.h))
 
     def test_cpu_is_float(self):
         fn = lambda x: x.cpu()
-        always_cpu_float = {torch.float: 'torch.FloatTensor',
-                            torch.half: 'torch.FloatTensor'}
+        always_cpu_float = {
+            torch.float: "torch.FloatTensor",
+            torch.half: "torch.FloatTensor",
+        }
         run_layer_test(self, [fn], always_cpu_float, (self.b, self.h))
 
     def test_sum_is_float(self):
@@ -139,5 +160,6 @@ class TestTensorCasts(unittest.TestCase):
 
     # TODO: maybe more tests on disabled casting?
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

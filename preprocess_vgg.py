@@ -1,14 +1,17 @@
+import argparse
 import os
 import sys
-import cv2
-import argparse
-from insightface_func.face_detect_crop_single import Face_detect_crop
 from pathlib import Path
+
+import cv2
 from tqdm import tqdm
 
+from insightface_func.face_detect_crop_single import Face_detect_crop
+
+
 def main(args):
-    app = Face_detect_crop(name='antelope', root='./insightface_func/models')
-    app.prepare(ctx_id= 0, det_thresh=0.6, det_size=(640,640))
+    app = Face_detect_crop(name="antelope", root="./insightface_func/models")
+    app.prepare(ctx_id=0, det_thresh=0.6, det_size=(640, 640))
     crop_size = 224
 
     dirs = os.listdir(args.path_to_dataset)
@@ -16,7 +19,7 @@ def main(args):
         d = os.path.join(args.path_to_dataset, dirs[i])
         dir_to_save = os.path.join(args.save_path, dirs[i])
         Path(dir_to_save).mkdir(parents=True, exist_ok=True)
-        
+
         image_names = os.listdir(d)
         for image_name in image_names:
             try:
@@ -26,14 +29,18 @@ def main(args):
                 cv2.imwrite(os.path.join(dir_to_save, image_name), cropped_image[0])
             except:
                 pass
-        
-    
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    
-    parser.add_argument('--path_to_dataset', default='./VggFace2/VGG-Face2/data/preprocess_train', type=str)
-    parser.add_argument('--save_path', default='./VggFace2-crop', type=str)
-    
+
+    parser.add_argument(
+        "--path_to_dataset",
+        default="./VggFace2/VGG-Face2/data/preprocess_train",
+        type=str,
+    )
+    parser.add_argument("--save_path", default="./VggFace2-crop", type=str)
+
     args = parser.parse_args()
-    
+
     main(args)

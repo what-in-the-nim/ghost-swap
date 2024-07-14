@@ -6,8 +6,9 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torchvision
 import torch.nn.utils.spectral_norm as spectral_norm
+import torchvision
+
 from models.networks.normalization import SPADE
 
 
@@ -22,7 +23,7 @@ class SPADEResnetBlock(nn.Module):
     def __init__(self, fin, fout, opt, semantic_nc=None):
         super().__init__()
         # Attributes
-        self.learned_shortcut = (fin != fout)
+        self.learned_shortcut = fin != fout
         fmiddle = min(fin, fout)
         if semantic_nc is None:
             semantic_nc = opt.semantic_nc
@@ -34,14 +35,14 @@ class SPADEResnetBlock(nn.Module):
             self.conv_s = nn.Conv2d(fin, fout, kernel_size=1, bias=False)
 
         # apply spectral norm if specified
-        if 'spectral' in opt.norm_G:
+        if "spectral" in opt.norm_G:
             self.conv_0 = spectral_norm(self.conv_0)
             self.conv_1 = spectral_norm(self.conv_1)
             if self.learned_shortcut:
                 self.conv_s = spectral_norm(self.conv_s)
 
         # define normalization layers
-        spade_config_str = opt.norm_G.replace('spectral', '')
+        spade_config_str = opt.norm_G.replace("spectral", "")
         self.norm_0 = SPADE(spade_config_str, fin, semantic_nc)
         self.norm_1 = SPADE(spade_config_str, fmiddle, semantic_nc)
         if self.learned_shortcut:
@@ -82,7 +83,7 @@ class ResnetBlock(nn.Module):
             norm_layer(nn.Conv2d(dim, dim, kernel_size=kernel_size)),
             activation,
             nn.ReflectionPad2d(pw),
-            norm_layer(nn.Conv2d(dim, dim, kernel_size=kernel_size))
+            norm_layer(nn.Conv2d(dim, dim, kernel_size=kernel_size)),
         )
 
     def forward(self, x):

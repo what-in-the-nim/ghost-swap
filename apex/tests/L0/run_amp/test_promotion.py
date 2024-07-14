@@ -1,13 +1,12 @@
+import itertools as it
 import unittest
 
-import itertools as it
-
-from apex import amp
 import torch
-from torch import nn
 import torch.nn.functional as F
 
-from utils import common_init, HALF, FLOAT, DTYPES
+from apex import amp
+from utils import DTYPES, FLOAT, HALF, common_init
+
 
 class TestPromotion(unittest.TestCase):
     def setUp(self):
@@ -40,13 +39,11 @@ class TestPromotion(unittest.TestCase):
             self.assertEqual(x_leaf.grad.dtype, xtype)
 
     def test_atan2_matches_widest(self):
-        fns = [lambda x, y : torch.atan2(x, y),
-               lambda x, y : x.atan2(y)]
+        fns = [lambda x, y: torch.atan2(x, y), lambda x, y: x.atan2(y)]
         self.run_binary_promote_test(fns, (self.b,))
 
     def test_mul_matches_widest(self):
-        fns = [lambda x, y : torch.mul(x, y),
-               lambda x, y: x.mul(y)]
+        fns = [lambda x, y: torch.mul(x, y), lambda x, y: x.mul(y)]
         self.run_binary_promote_test(fns, (self.b,))
 
     def test_cat_matches_widest(self):
@@ -71,5 +68,6 @@ class TestPromotion(unittest.TestCase):
         fn = lambda x, y: x.add_(y)
         self.run_binary_promote_test([fn], (self.b,), x_inplace=True)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

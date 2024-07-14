@@ -1,62 +1,69 @@
 from collections import OrderedDict
-from .utility import Utility
+
 from .base import OperatorLayerBase
+from .utility import Utility
+
 
 class Convert(OperatorLayerBase):
-	"""
-	Class to handle convert operations.
-	"""
-	ops = ["byte", "char", "double", "float", "half", "int", "long", "short", "to"]
+    """
+    Class to handle convert operations.
+    """
 
-	def __init__(self, d):
-		marker = eval(d.argMarker[0])
-		mod = marker['mod']
-		op = marker['op']
-		args = marker['args']
+    ops = ["byte", "char", "double", "float", "half", "int", "long", "short", "to"]
 
-		self.marker = marker
-		self.mod_ = mod
-		self.op_ = op
-		self.args = args
+    def __init__(self, d):
+        marker = eval(d.argMarker[0])
+        mod = marker["mod"]
+        op = marker["op"]
+        args = marker["args"]
 
-		assert (mod == "Tensor")
-		assert (op in Convert.ops)
-		assert (len(args) == 1)
+        self.marker = marker
+        self.mod_ = mod
+        self.op_ = op
+        self.args = args
 
-		#The argument could be a tensor or scalar
-		t = args[0]
-		if t['type'] == "tensor":
-			shape = t['shape']
-			stype = t['dtype']
-		else:
-			shape = (1,)
-			stype = t['type']
-		if self.op_ == "to":
-			op = stype
+        assert mod == "Tensor"
+        assert op in Convert.ops
+        assert len(args) == 1
 
-		self.shape = shape
-		self.stype = stype
-		self.dtype = op
+        # The argument could be a tensor or scalar
+        t = args[0]
+        if t["type"] == "tensor":
+            shape = t["shape"]
+            stype = t["dtype"]
+        else:
+            shape = (1,)
+            stype = t["type"]
+        if self.op_ == "to":
+            op = stype
 
-	def params(self):
-		p = OrderedDict([('T', self.shape), ('stype', self.stype), ('dtype', self.dtype)])
-		return p
+        self.shape = shape
+        self.stype = stype
+        self.dtype = op
 
-	def op(self):
-		return self.op_
+    def params(self):
+        p = OrderedDict(
+            [("T", self.shape), ("stype", self.stype), ("dtype", self.dtype)]
+        )
+        return p
 
-	def mod(self):
-		return self.mod_
+    def op(self):
+        return self.op_
 
-	def tc(self):
-		return "-"
+    def mod(self):
+        return self.mod_
 
-	def elems(self):
-		return Utility.numElems(self.shape)
+    def tc(self):
+        return "-"
 
-	def flops(self):
-		return 0
+    def elems(self):
+        return Utility.numElems(self.shape)
 
-	def bytes(self):
-		b = self.elems() * (Utility.typeToBytes(self.stype) + Utility.typeToBytes(self.dtype))
-		return b
+    def flops(self):
+        return 0
+
+    def bytes(self):
+        b = self.elems() * (
+            Utility.typeToBytes(self.stype) + Utility.typeToBytes(self.dtype)
+        )
+        return b

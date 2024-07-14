@@ -1,18 +1,22 @@
 import math
+
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn import Parameter
+
 from .config import device, num_classes
 
 
 def create_model(opt):
-    if opt.model == 'pix2pixHD':
-        #from .pix2pixHD_model import Pix2PixHDModel, InferenceModel
+    if opt.model == "pix2pixHD":
+        # from .pix2pixHD_model import Pix2PixHDModel, InferenceModel
         from .fs_model import fsModel
+
         model = fsModel()
     else:
         from .ui_model import UIModel
+
         model = UIModel()
 
     model.initialize(opt)
@@ -25,7 +29,6 @@ def create_model(opt):
     return model
 
 
-
 class SEBlock(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SEBlock, self).__init__()
@@ -34,7 +37,7 @@ class SEBlock(nn.Module):
             nn.Linear(channel, channel // reduction),
             nn.PReLU(),
             nn.Linear(channel // reduction, channel),
-            nn.Sigmoid()
+            nn.Sigmoid(),
         )
 
     def forward(self, x):
@@ -115,13 +118,20 @@ class ResNet(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                nn.Conv2d(self.inplanes, planes * block.expansion,
-                          kernel_size=1, stride=stride, bias=False),
+                nn.Conv2d(
+                    self.inplanes,
+                    planes * block.expansion,
+                    kernel_size=1,
+                    stride=stride,
+                    bias=False,
+                ),
                 nn.BatchNorm2d(planes * block.expansion),
             )
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample, use_se=self.use_se))
+        layers.append(
+            block(self.inplanes, planes, stride, downsample, use_se=self.use_se)
+        )
         self.inplanes = planes
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, use_se=self.use_se))

@@ -19,9 +19,8 @@ import unittest
 import torch
 import torch.nn as nn
 import torch.optim as optim
-
-from sync_batchnorm.unittest import TorchTestCase
 from sync_batchnorm.batchnorm_reimpl import BatchNorm2dReimpl
+from sync_batchnorm.unittest import TorchTestCase
 
 
 class NumericTestCasev2(TorchTestCase):
@@ -57,6 +56,5 @@ class NumericTestCasev2(TorchTestCase):
         self.assertTensorClose(batchnorm2.running_mean, batchnorm2.running_mean)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
-

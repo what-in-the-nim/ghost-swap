@@ -1,10 +1,11 @@
 import contextlib
 import warnings
 
-from .scaler import LossScaler, master_params
-from ._amp_state import maybe_print
-
 import numpy as np
+
+from ._amp_state import maybe_print
+from .scaler import LossScaler, master_params
+
 
 class OptimWrapper(object):
     def __init__(self, optimizer, amp_handle, num_loss):
@@ -13,7 +14,7 @@ class OptimWrapper(object):
         self._num_loss = num_loss
         self._loss_idx = 0
         self._skip_next = [False] * num_loss
-        self._loss_scaler = [LossScaler('dynamic') for _ in range(num_loss)]
+        self._loss_scaler = [LossScaler("dynamic") for _ in range(num_loss)]
 
     @contextlib.contextmanager
     def scale_loss(self, loss):
@@ -39,15 +40,13 @@ class OptimWrapper(object):
 
         self._cur_loss_scaler().clear_overflow_state()
         self._cur_loss_scaler().unscale(
-            master_params(self._optimizer),
-            master_params(self._optimizer),
-            loss_scale)
+            master_params(self._optimizer), master_params(self._optimizer), loss_scale
+        )
         self._skip_next[self._loss_idx] = self._cur_loss_scaler().update_scale()
         self._loss_idx += 1
 
         if len(cached_grads) > 0:
-            for p, cached_grad in zip(master_params(self._optimizer),
-                                      cached_grads):
+            for p, cached_grad in zip(master_params(self._optimizer), cached_grads):
                 if cached_grad is not None:
                     p.grad.data.add_(cached_grad)
             cached_grads = []
@@ -63,15 +62,16 @@ class OptimWrapper(object):
         self._loss_idx = 0
 
         for group in self._optimizer.param_groups:
-            for p in group['params']:
+            for p in group["params"]:
                 self._amp_handle.remove_cache(p)
 
         if closure is not None:
             raise NotImplementedError(
-                'The `closure` argument is unsupported by the amp ' +
-                'optimizer wrapper.')
+                "The `closure` argument is unsupported by the amp "
+                + "optimizer wrapper."
+            )
         if any(self._skip_next):
-            maybe_print('Gradient overflow, skipping update')
+            maybe_print("Gradient overflow, skipping update")
             self._skip_next = [False] * self._num_loss
         else:
             return self._optimizer.step(closure=closure)

@@ -12,7 +12,7 @@ users as quickly as possible.
 
 # Contents
 
-## 1. Amp:  Automatic Mixed Precision
+## 1. Amp: Automatic Mixed Precision
 
 `apex.amp` is a tool to enable mixed precision training by changing only 3 lines of your script.
 Users can easily experiment with different pure and mixed precision training modes by supplying
@@ -32,7 +32,7 @@ different flags to `amp.initialize`.
 ## 2. Distributed Training
 
 `apex.parallel.DistributedDataParallel` is a module wrapper, similar to
-`torch.nn.parallel.DistributedDataParallel`.  It enables convenient multiprocess distributed training,
+`torch.nn.parallel.DistributedDataParallel`. It enables convenient multiprocess distributed training,
 optimized for NVIDIA's NCCL communication library.
 
 [API Documentation](https://nvidia.github.io/apex/parallel.html)
@@ -62,6 +62,7 @@ To properly save and load your `amp` training, we introduce the `amp.state_dict(
 as well as `amp.load_state_dict()` to restore these attributes.
 
 In order to get bitwise accuracy, we recommend the following workflow:
+
 ```python
 # Initialization
 opt_level = 'O1'
@@ -104,14 +105,15 @@ Python 3
 
 CUDA 9 or newer
 
-PyTorch 0.4 or newer.  The CUDA and C++ extensions require pytorch 1.0 or newer.
+PyTorch 0.4 or newer. The CUDA and C++ extensions require pytorch 1.0 or newer.
 
 We recommend the latest stable release, obtainable from
-[https://pytorch.org/](https://pytorch.org/).  We also test against the latest master branch, obtainable from [https://github.com/pytorch/pytorch](https://github.com/pytorch/pytorch).
+[https://pytorch.org/](https://pytorch.org/). We also test against the latest master branch, obtainable from [https://github.com/pytorch/pytorch](https://github.com/pytorch/pytorch).
 
-It's often convenient to use Apex in Docker containers.  Compatible options include:
-* [NVIDIA Pytorch containers from NGC](https://ngc.nvidia.com/catalog/containers/nvidia%2Fpytorch), which come with Apex preinstalled.  To use the latest Amp API, you may need to `pip uninstall apex` then reinstall Apex using the **Quick Start** commands below.
-* [official Pytorch -devel Dockerfiles](https://hub.docker.com/r/pytorch/pytorch/tags), e.g. `docker pull pytorch/pytorch:nightly-devel-cuda10.0-cudnn7`, in which you can install Apex using the **Quick Start** commands.
+It's often convenient to use Apex in Docker containers. Compatible options include:
+
+- [NVIDIA Pytorch containers from NGC](https://ngc.nvidia.com/catalog/containers/nvidia%2Fpytorch), which come with Apex preinstalled. To use the latest Amp API, you may need to `pip uninstall apex` then reinstall Apex using the **Quick Start** commands below.
+- [official Pytorch -devel Dockerfiles](https://hub.docker.com/r/pytorch/pytorch/tags), e.g. `docker pull pytorch/pytorch:nightly-devel-cuda10.0-cudnn7`, in which you can install Apex using the **Quick Start** commands.
 
 See the [Docker example folder](https://github.com/NVIDIA/apex/tree/master/examples/docker) for details.
 
@@ -121,6 +123,7 @@ See the [Docker example folder](https://github.com/NVIDIA/apex/tree/master/examp
 
 For performance and full functionality, we recommend installing Apex with
 CUDA and C++ extensions via
+
 ```
 git clone https://github.com/NVIDIA/apex
 cd apex
@@ -128,19 +131,23 @@ pip install -v --disable-pip-version-check --no-cache-dir --global-option="--cpp
 ```
 
 Apex also supports a Python-only build (required with Pytorch 0.4) via
+
 ```
 pip install -v --disable-pip-version-check --no-cache-dir ./
 ```
+
 A Python-only build omits:
+
 - Fused kernels required to use `apex.optimizers.FusedAdam`.
 - Fused kernels required to use `apex.normalization.FusedLayerNorm`.
 - Fused kernels that improve the performance and numerical stability of `apex.parallel.SyncBatchNorm`.
 - Fused kernels that improve the performance of `apex.parallel.DistributedDataParallel` and `apex.amp`.
-`DistributedDataParallel`, `amp`, and `SyncBatchNorm` will still be usable, but they may be slower.
+  `DistributedDataParallel`, `amp`, and `SyncBatchNorm` will still be usable, but they may be slower.
 
 Pyprof support has been moved to its own [dedicated repository](https://github.com/NVIDIA/PyProf).
 The codebase is deprecated in Apex and will be removed soon.
 
 ### Windows support
-Windows support is experimental, and Linux is recommended.  `pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" .` may work if you were able to build Pytorch from source
-on your system.  `pip install -v --no-cache-dir .` (without CUDA/C++ extensions) is more likely to work.  If you installed Pytorch in a Conda environment, make sure to install Apex in that same environment.
+
+Windows support is experimental, and Linux is recommended. `pip install -v --no-cache-dir --global-option="--cpp_ext" --global-option="--cuda_ext" .` may work if you were able to build Pytorch from source
+on your system. `pip install -v --no-cache-dir .` (without CUDA/C++ extensions) is more likely to work. If you installed Pytorch in a Conda environment, make sure to install Apex in that same environment.

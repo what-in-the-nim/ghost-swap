@@ -1,11 +1,12 @@
+import random
 import unittest
 
-from apex import amp
-import random
 import torch
 from torch import nn
 
-from utils import common_init, HALF
+from apex import amp
+from utils import HALF, common_init
+
 
 class TestRnnCells(unittest.TestCase):
     def setUp(self):
@@ -18,8 +19,7 @@ class TestRnnCells(unittest.TestCase):
     def run_cell_test(self, cell, state_tuple=False):
         shape = (self.b, self.h)
         for typ in [torch.float, torch.half]:
-            xs = [torch.randn(shape, dtype=typ).requires_grad_()
-                  for _ in range(self.t)]
+            xs = [torch.randn(shape, dtype=typ).requires_grad_() for _ in range(self.t)]
             hidden_fn = lambda: torch.zeros(shape, dtype=typ)
             if state_tuple:
                 hidden = (hidden_fn(), hidden_fn())
@@ -51,6 +51,7 @@ class TestRnnCells(unittest.TestCase):
         cell = nn.LSTMCell(self.h, self.h)
         self.run_cell_test(cell, state_tuple=True)
 
+
 class TestRnns(unittest.TestCase):
     def setUp(self):
         self.handle = amp.init(enabled=True)
@@ -62,8 +63,9 @@ class TestRnns(unittest.TestCase):
     def run_rnn_test(self, rnn, layers, bidir, state_tuple=False):
         for typ in [torch.float, torch.half]:
             x = torch.randn((self.t, self.b, self.h), dtype=typ).requires_grad_()
-            hidden_fn = lambda: torch.zeros((layers + (layers * bidir),
-                                             self.b, self.h), dtype=typ)
+            hidden_fn = lambda: torch.zeros(
+                (layers + (layers * bidir), self.b, self.h), dtype=typ
+            )
             if state_tuple:
                 hidden = (hidden_fn(), hidden_fn())
             else:
@@ -76,22 +78,35 @@ class TestRnns(unittest.TestCase):
     def test_rnn_is_half(self):
         configs = [(1, False), (2, False), (2, True)]
         for layers, bidir in configs:
-            rnn = nn.RNN(input_size=self.h, hidden_size=self.h, num_layers=layers,
-                         nonlinearity='relu', bidirectional=bidir)
+            rnn = nn.RNN(
+                input_size=self.h,
+                hidden_size=self.h,
+                num_layers=layers,
+                nonlinearity="relu",
+                bidirectional=bidir,
+            )
             self.run_rnn_test(rnn, layers, bidir)
 
     def test_gru_is_half(self):
         configs = [(1, False), (2, False), (2, True)]
         for layers, bidir in configs:
-            rnn = nn.GRU(input_size=self.h, hidden_size=self.h, num_layers=layers,
-                         bidirectional=bidir)
+            rnn = nn.GRU(
+                input_size=self.h,
+                hidden_size=self.h,
+                num_layers=layers,
+                bidirectional=bidir,
+            )
             self.run_rnn_test(rnn, layers, bidir)
 
     def test_lstm_is_half(self):
         configs = [(1, False), (2, False), (2, True)]
         for layers, bidir in configs:
-            rnn = nn.LSTM(input_size=self.h, hidden_size=self.h, num_layers=layers,
-                         bidirectional=bidir)
+            rnn = nn.LSTM(
+                input_size=self.h,
+                hidden_size=self.h,
+                num_layers=layers,
+                bidirectional=bidir,
+            )
             self.run_rnn_test(rnn, layers, bidir, state_tuple=True)
 
     def test_rnn_packed_sequence(self):
@@ -99,11 +114,13 @@ class TestRnns(unittest.TestCase):
         rnn = nn.RNN(input_size=self.h, hidden_size=self.h, num_layers=num_layers)
         for typ in [torch.float, torch.half]:
             x = torch.randn((self.t, self.b, self.h), dtype=typ).requires_grad_()
-            lens = sorted([random.randint(self.t // 2, self.t) for _ in range(self.b)],
-                          reverse=True)
+            lens = sorted(
+                [random.randint(self.t // 2, self.t) for _ in range(self.b)],
+                reverse=True,
+            )
             # `pack_padded_sequence` breaks if default tensor type is non-CPU
             torch.set_default_tensor_type(torch.FloatTensor)
-            lens = torch.tensor(lens, dtype=torch.int64, device=torch.device('cpu'))
+            lens = torch.tensor(lens, dtype=torch.int64, device=torch.device("cpu"))
             packed_seq = nn.utils.rnn.pack_padded_sequence(x, lens)
             torch.set_default_tensor_type(torch.cuda.FloatTensor)
             hidden = torch.zeros((num_layers, self.b, self.h), dtype=typ)
@@ -112,5 +129,6 @@ class TestRnns(unittest.TestCase):
             output.data.float().sum().backward()
             self.assertEqual(x.grad.dtype, x.dtype)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

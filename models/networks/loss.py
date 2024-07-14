@@ -6,6 +6,7 @@ Licensed under the CC BY-NC-SA 4.0 license (https://creativecommons.org/licenses
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
 from models.networks.architecture import VGG19
 
 
@@ -14,8 +15,14 @@ from models.networks.architecture import VGG19
 # but it abstracts away the need to create the target label tensor
 # that has the same size as the input
 class GANLoss(nn.Module):
-    def __init__(self, gan_mode, target_real_label=1.0, target_fake_label=0.0,
-                 tensor=torch.FloatTensor, opt=None):
+    def __init__(
+        self,
+        gan_mode,
+        target_real_label=1.0,
+        target_fake_label=0.0,
+        tensor=torch.FloatTensor,
+        opt=None,
+    ):
         super(GANLoss, self).__init__()
         self.real_label = target_real_label
         self.fake_label = target_fake_label
@@ -25,16 +32,16 @@ class GANLoss(nn.Module):
         self.Tensor = tensor
         self.gan_mode = gan_mode
         self.opt = opt
-        if gan_mode == 'ls':
+        if gan_mode == "ls":
             pass
-        elif gan_mode == 'original':
+        elif gan_mode == "original":
             pass
-        elif gan_mode == 'w':
+        elif gan_mode == "w":
             pass
-        elif gan_mode == 'hinge':
+        elif gan_mode == "hinge":
             pass
         else:
-            raise ValueError('Unexpected gan_mode {}'.format(gan_mode))
+            raise ValueError("Unexpected gan_mode {}".format(gan_mode))
 
     def get_target_tensor(self, input, target_is_real):
         if target_is_real:
@@ -55,14 +62,14 @@ class GANLoss(nn.Module):
         return self.zero_tensor.expand_as(input)
 
     def loss(self, input, target_is_real, for_discriminator=True):
-        if self.gan_mode == 'original':  # cross entropy loss
+        if self.gan_mode == "original":  # cross entropy loss
             target_tensor = self.get_target_tensor(input, target_is_real)
             loss = F.binary_cross_entropy_with_logits(input, target_tensor)
             return loss
-        elif self.gan_mode == 'ls':
+        elif self.gan_mode == "ls":
             target_tensor = self.get_target_tensor(input, target_is_real)
             return F.mse_loss(input, target_tensor)
-        elif self.gan_mode == 'hinge':
+        elif self.gan_mode == "hinge":
             if for_discriminator:
                 if target_is_real:
                     minval = torch.min(input - 1, self.get_zero_tensor(input))
@@ -71,7 +78,9 @@ class GANLoss(nn.Module):
                     minval = torch.min(-input - 1, self.get_zero_tensor(input))
                     loss = -torch.mean(minval)
             else:
-                assert target_is_real, "The generator's hinge loss must be aiming for real"
+                assert (
+                    target_is_real
+                ), "The generator's hinge loss must be aiming for real"
                 loss = -torch.mean(input)
             return loss
         else:
@@ -102,12 +111,12 @@ class GANLoss(nn.Module):
 class VGGLoss(nn.Module):
     def __init__(self, gpu_ids):
         super(VGGLoss, self).__init__()
-        self.vgg = VGG19().cuda() if len(gpu_ids)>0 else VGG19()
+        self.vgg = VGG19().cuda() if len(gpu_ids) > 0 else VGG19()
         self.criterion = nn.L1Loss()
         self.weights = [1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0]
 
     def forward(self, x, y):
-        if x.shape[-2:]!=y.shape[-2:]:
+        if x.shape[-2:] != y.shape[-2:]:
             y = torch.nn.functional.interpolate(y, tuple(x.shape[-2:]))
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
         loss = 0

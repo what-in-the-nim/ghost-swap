@@ -1,5 +1,5 @@
-Nvidia NVTX range markers (https://docs.nvidia.com/gameworks/content/gameworkslibrary/nvtx/nvidia_tools_extension_library_nvtx.htm) 
-are a useful tool to capture and observe events and code ranges etc. 
+Nvidia NVTX range markers (https://docs.nvidia.com/gameworks/content/gameworkslibrary/nvtx/nvidia_tools_extension_library_nvtx.htm)
+are a useful tool to capture and observe events and code ranges etc.
 Using PyTorch APIs e.g, `torch.cuda.nvtx.range_push("xxx")` and `torch.cuda.nvtx.range_pop()` users can easily add their own NVTX range markers. These markers can then be observed in the Nvidia Visual Profiler (NVVP).
 
 While inserting NVTX markers (strings), if the users follow a specific string pattern `"layer:your_string_here"` e.g. `"layer:conv1"` or `"layer:encoder_layer_3_self_attention`, then `pyprof` will display the strings `conv1` and `encoder_layer_3_self_attention` next to the associated kernels in the output of `prof.py` when used with the `-c layer` option.

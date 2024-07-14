@@ -1,12 +1,12 @@
 import contextlib
-import warnings
 import sys
+
 import torch
 
 from . import utils
+from ._amp_state import _amp_state, master_params, maybe_print
 from .opt import OptimWrapper
 from .scaler import LossScaler
-from ._amp_state import _amp_state, master_params, maybe_print
 
 if torch.distributed.is_available():
     from ..parallel.LARC import LARC
@@ -14,12 +14,14 @@ if torch.distributed.is_available():
 
 # There's no reason to expose the notion of a "handle". Everything can happen through amp.* calls.
 @contextlib.contextmanager
-def scale_loss(loss,
-               optimizers,
-               loss_id=0,
-               model=None,
-               delay_unscale=False,
-               delay_overflow_check=False):
+def scale_loss(
+    loss,
+    optimizers,
+    loss_id=0,
+    model=None,
+    delay_unscale=False,
+    delay_overflow_check=False,
+):
     """
     On context manager entrance, creates ``scaled_loss = (loss.float())*current loss scale``.
     ``scaled_loss`` is yielded so that the user can call ``scaled_loss.backward()``::
@@ -79,23 +81,29 @@ def scale_loss(loss,
         https://nvidia.github.io/apex/advanced.html
     """
     if not hasattr(_amp_state, "opt_properties"):
-        raise RuntimeError("Invoked 'with amp.scale_loss`, but internal Amp state has not been initialized.  "
-                           "model, optimizer = amp.initialize(model, optimizer, opt_level=...) must be called "
-                           "before `with amp.scale_loss`.")
+        raise RuntimeError(
+            "Invoked 'with amp.scale_loss`, but internal Amp state has not been initialized.  "
+            "model, optimizer = amp.initialize(model, optimizer, opt_level=...) must be called "
+            "before `with amp.scale_loss`."
+        )
 
     if not _amp_state.opt_properties.enabled:
         yield loss
         return
 
-    if isinstance(optimizers, torch.optim.Optimizer) or ('LARC' in globals() and isinstance(optimizers, LARC)):
+    if isinstance(optimizers, torch.optim.Optimizer) or (
+        "LARC" in globals() and isinstance(optimizers, LARC)
+    ):
         optimizers = [optimizers]
 
     loss_scaler = _amp_state.loss_scalers[loss_id]
     loss_scale = loss_scaler.loss_scale()
 
-    if ((not _amp_state.opt_properties.master_weights)
+    if (
+        (not _amp_state.opt_properties.master_weights)
         and (not loss_scaler.dynamic)
-        and loss_scale == 1.0):
+        and loss_scale == 1.0
+    ):
         yield loss.float()
         # Needing to drop the cache here as well is an ugly gotcha.
         # But for now I think it's necessary to short-circuit.
@@ -110,7 +118,7 @@ def scale_loss(loss,
                 if not optimizer._amp_stash.params_have_scaled_gradients:
                     optimizer._prepare_amp_backward()
 
-    yield (loss.float())*loss_scale
+    yield (loss.float()) * loss_scale
 
     if delay_unscale:
         for optimizer in optimizers:
@@ -118,40 +126,48 @@ def scale_loss(loss,
     else:
         # FusedSGD may take care of unscaling as part of their step() methods.
         # if not isinstance(optimizers, FP16_Optimizer_for_fused):
-            loss_scaler.clear_overflow_state()
+        loss_scaler.clear_overflow_state()
+        for optimizer in optimizers:
+            optimizer._post_amp_backward(loss_scaler)
+            optimizer._amp_stash.params_have_scaled_gradients = False
+        # For future fused optimizers that enable sync-free dynamic loss scaling,
+        # should_skip will always be False.
+        should_skip = False if delay_overflow_check else loss_scaler.update_scale()
+        if should_skip:
             for optimizer in optimizers:
-                optimizer._post_amp_backward(loss_scaler)
-                optimizer._amp_stash.params_have_scaled_gradients = False
-            # For future fused optimizers that enable sync-free dynamic loss scaling,
-            # should_skip will always be False.
-            should_skip = False if delay_overflow_check else loss_scaler.update_scale()
-            if should_skip:
-                for optimizer in optimizers:
-                    if not optimizer._amp_stash.already_patched:
-                        # Close on loss_scaler and loss_id as well, to be safe.  Probably not
-                        # necessary because amp.scale_loss is already creating a temporary scope.
-                        def patch_step(opt, loss_scaler, loss_id):
-                            opt_step = opt.step
-                            def skip_step(closure=None):
-                                if closure is not None:
-                                    raise RuntimeError("Currently, Amp does not support closure use with optimizers.")
-                                maybe_print(("Gradient overflow.  Skipping step, loss scaler " +
-                                             "{} reducing loss scale to {}").format(loss_id,
-                                             loss_scaler.loss_scale()))
-                                # TODO:  I don't like the special casing for different optimizer implementations.
-                                # Maybe skip should delegate to a method owned by the optimizers themselves.
-                                if hasattr(opt._amp_stash, "all_fp32_from_fp16_params"):
-                                    # Clear the master grads that wouldn't be zeroed by model.zero_grad()
-                                    for param in opt._amp_stash.all_fp32_from_fp16_params:
-                                        param.grad = None
-                                if hasattr(opt, "most_recent_scale"):
-                                    opt.most_recent_scale = 1.0
-                                    opt.scale_set_by_backward = False
-                                opt.step = opt_step
-                                opt._amp_stash.already_patched = False
-                            return skip_step
-                        optimizer.step = patch_step(optimizer, loss_scaler, loss_id)
-                        optimizer._amp_stash.already_patched = True
+                if not optimizer._amp_stash.already_patched:
+                    # Close on loss_scaler and loss_id as well, to be safe.  Probably not
+                    # necessary because amp.scale_loss is already creating a temporary scope.
+                    def patch_step(opt, loss_scaler, loss_id):
+                        opt_step = opt.step
+
+                        def skip_step(closure=None):
+                            if closure is not None:
+                                raise RuntimeError(
+                                    "Currently, Amp does not support closure use with optimizers."
+                                )
+                            maybe_print(
+                                (
+                                    "Gradient overflow.  Skipping step, loss scaler "
+                                    + "{} reducing loss scale to {}"
+                                ).format(loss_id, loss_scaler.loss_scale())
+                            )
+                            # TODO:  I don't like the special casing for different optimizer implementations.
+                            # Maybe skip should delegate to a method owned by the optimizers themselves.
+                            if hasattr(opt._amp_stash, "all_fp32_from_fp16_params"):
+                                # Clear the master grads that wouldn't be zeroed by model.zero_grad()
+                                for param in opt._amp_stash.all_fp32_from_fp16_params:
+                                    param.grad = None
+                            if hasattr(opt, "most_recent_scale"):
+                                opt.most_recent_scale = 1.0
+                                opt.scale_set_by_backward = False
+                            opt.step = opt_step
+                            opt._amp_stash.already_patched = False
+
+                        return skip_step
+
+                    optimizer.step = patch_step(optimizer, loss_scaler, loss_id)
+                    optimizer._amp_stash.already_patched = True
 
     # Probably ok to skip this if not delay_unscale
     if _amp_state.opt_properties.patch_torch_functions:
@@ -191,9 +207,11 @@ class AmpHandle(object):
 
     @contextlib.contextmanager
     def scale_loss(self, loss, optimizer):
-        raise RuntimeError("The old Amp API is no longer supported.  Please move to the new API, "
+        raise RuntimeError(
+            "The old Amp API is no longer supported.  Please move to the new API, "
             "documented here:  https://nvidia.github.io/apex/amp.html.  Transition guide:  "
-            "https://nvidia.github.io/apex/amp.html#transition-guide-for-old-api-users")
+            "https://nvidia.github.io/apex/amp.html#transition-guide-for-old-api-users"
+        )
 
         if not self.is_active():
             yield loss
@@ -201,8 +219,9 @@ class AmpHandle(object):
 
         if self._default_scaler is None:
             raise RuntimeError(
-                'After calling `handle.wrap_optimizer()`, you must explicitly ' +
-                'use `optimizer.scale_loss(loss)`.')
+                "After calling `handle.wrap_optimizer()`, you must explicitly "
+                + "use `optimizer.scale_loss(loss)`."
+            )
 
         # TODO: this code block is duplicated here and `opt.py`. Unify.
         loss_scale = self._default_scaler.loss_scale()
@@ -210,15 +229,16 @@ class AmpHandle(object):
 
         self._default_scaler.clear_overflow_state()
         self._default_scaler.unscale(
-            master_params(optimizer),
-            master_params(optimizer),
-            loss_scale)
+            master_params(optimizer), master_params(optimizer), loss_scale
+        )
         should_skip = self._default_scaler.update_scale()
         if should_skip:
             optimizer_step = optimizer.step
+
             def skip_step():
-                maybe_print('Gradient overflow, skipping update')
+                maybe_print("Gradient overflow, skipping update")
                 optimizer.step = optimizer_step
+
             optimizer.step = skip_step
 
         self._clear_cache()
@@ -250,6 +270,7 @@ class AmpHandle(object):
     @property
     def verbose(self):
         return self._verbose
+
 
 class NoOpHandle(object):
     def is_active(self):

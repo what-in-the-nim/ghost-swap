@@ -1,6 +1,6 @@
 ###############################################################################
 # Copyright (c) 2011-2021, NVIDIA CORPORATION.  All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #     * Redistributions of source code must retain the above copyright
@@ -11,7 +11,7 @@
 #     * Neither the name of the NVIDIA CORPORATION nor the
 #       names of its contributors may be used to endorse or promote products
 #       derived from this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 # ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 # WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -26,27 +26,33 @@
 ###############################################################################
 
 
+import fmhalib as mha
 import torch
 import torch.nn.functional as F
-import fmhalib as mha
+
 
 class FMHAFun(torch.autograd.Function):
     @staticmethod
     def forward(ctx, qkv, cu_seqlens, seqlens, p_dropout, max_s, is_training):
-        context, S_dmask = mha.fwd(qkv, cu_seqlens, seqlens, p_dropout, max_s, is_training, None)
+        context, S_dmask = mha.fwd(
+            qkv, cu_seqlens, seqlens, p_dropout, max_s, is_training, None
+        )
         ctx.save_for_backward(qkv, S_dmask)
         ctx.cu_seqlens = cu_seqlens
         ctx.seqlens = seqlens
         ctx.p_dropout = p_dropout
         ctx.max_s = max_s
         return context
-    
+
     @staticmethod
     def backward(ctx, dout):
         qkv, S_dmask = ctx.saved_tensors
-        dqkv, dp = mha.bwd(dout, qkv, S_dmask, ctx.cu_seqlens, ctx.seqlens, ctx.p_dropout, ctx.max_s)
+        dqkv, dp = mha.bwd(
+            dout, qkv, S_dmask, ctx.cu_seqlens, ctx.seqlens, ctx.p_dropout, ctx.max_s
+        )
 
         return dqkv, None, None, None, None, None, None
+
 
 class FMHA(torch.nn.Module):
 
@@ -62,6 +68,13 @@ class FMHA(torch.nn.Module):
 
     def forward(self, qkv, cu_seqlens, seqlens, max_s, is_training=True):
 
-        ctx = FMHAFun.apply(qkv.view(-1, 3, self.h, self.d), cu_seqlens, seqlens, self.p_dropout, max_s, is_training)
+        ctx = FMHAFun.apply(
+            qkv.view(-1, 3, self.h, self.d),
+            cu_seqlens,
+            seqlens,
+            self.p_dropout,
+            max_s,
+            is_training,
+        )
 
         return ctx.view(-1, self.hidden_size)

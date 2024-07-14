@@ -1,12 +1,13 @@
-import unittest
 import os
 import random
-
-import math
-import torch
-import apex
+import unittest
 from itertools import product
+
+import torch
 from torch.optim import Optimizer
+
+import apex
+
 
 class TestFusedOptimizer(unittest.TestCase):
     def setUp(self, max_abs_diff=1e-3, max_rel_diff=1, iters=7):
@@ -19,13 +20,13 @@ class TestFusedOptimizer(unittest.TestCase):
         pass
 
     def gen_param_optim(self, tensors, options, tst_options=None):
-        
+
         # Adding this to make backward compatible with existing tests. Just in
         # case "tst_options" are not provided, it gets a copy of options
         # which contains the parameters for the reference optimizer
         if tst_options == None:
             tst_options = options
-            
+
         ref_param = []
         tst_param = []
         for tensor in tensors:
@@ -55,26 +56,29 @@ class TestFusedOptimizer(unittest.TestCase):
             max_abs_diff_p = (p_ref - p_tst).abs().max().item()
             max_rel_diff_p = ((p_ref - p_tst) / p_ref).abs().max().item()
 
-            if max_abs_diff_p > max_abs_diff:  max_abs_diff = max_abs_diff_p
-            if max_rel_diff_p > max_rel_diff:  max_rel_diff = max_rel_diff_p
+            if max_abs_diff_p > max_abs_diff:
+                max_abs_diff = max_abs_diff_p
+            if max_rel_diff_p > max_rel_diff:
+                max_rel_diff = max_rel_diff_p
 
         return max_abs_diff, max_rel_diff
 
-    def gen_single_type_test(self, param_type=torch.float, device='cuda'):
+    def gen_single_type_test(self, param_type=torch.float, device="cuda"):
         nelem = 278011
 
         # Some ref and test optimizers may require different set of options.
-        # This is a quick workaround to add that functionality while making 
+        # This is a quick workaround to add that functionality while making
         # minimum changes in existing code.
         # If there is no "tst_options" field provided, safe to initialize
         # the test optimizer with the parameters of reference optimizer.
-        if not hasattr(self, 'tst_options'):
+        if not hasattr(self, "tst_options"):
             self.tst_options = self.options
 
         tensor = torch.rand(nelem, dtype=param_type, device=device)
 
-        ref_param, tst_param, ref_optim, tst_optim = \
-            self.gen_param_optim([tensor], self.options, self.tst_options)
+        ref_param, tst_param, ref_optim, tst_optim = self.gen_param_optim(
+            [tensor], self.options, self.tst_options
+        )
 
         for i in range(self.iters):
             self.gen_grad(ref_param, tst_param)
@@ -89,8 +93,13 @@ class TestFusedAdam(TestFusedOptimizer):
 
     def __init__(self, *args, **kwargs):
         super(TestFusedAdam, self).__init__(*args, **kwargs)
-        self.options = {'lr':5e-4, 'betas':(0.9, 0.999), 'eps':1e-08,
-            'weight_decay': 0, 'amsgrad': False}
+        self.options = {
+            "lr": 5e-4,
+            "betas": (0.9, 0.999),
+            "eps": 1e-08,
+            "weight_decay": 0,
+            "amsgrad": False,
+        }
         self.ref_optim = torch.optim.Adam
         self.fused_optim = apex.optimizers.FusedAdam
 
@@ -100,22 +109,23 @@ class TestFusedAdam(TestFusedOptimizer):
     def test_half(self):
         self.gen_single_type_test(param_type=torch.float16)
 
-    @unittest.skipIf(torch.cuda.device_count()<2, "more than 1 GPU required")
+    @unittest.skipIf(torch.cuda.device_count() < 2, "more than 1 GPU required")
     def test_multi_device(self):
         devices = ("cuda:0", "cuda:1")
         for current_dev, tensor_dev in product(devices, devices):
             with torch.cuda.device(current_dev):
                 self.gen_single_type_test(param_type=torch.float, device=tensor_dev)
 
-    @unittest.skip('Disable until 8/1/2019 adam/adamw upstream picked')
+    @unittest.skip("Disable until 8/1/2019 adam/adamw upstream picked")
     def test_multi_params(self):
         sizes = [[4096, 1024], [4096], [4096, 2048], [32320, 1024], [1]]
 
         tensors = []
         for size in sizes:
-            tensors.append(torch.rand(size, dtype=torch.float, device='cuda'))
-        ref_param, tst_param, ref_optim, tst_optim = \
-            self.gen_param_optim(tensors, self.options)
+            tensors.append(torch.rand(size, dtype=torch.float, device="cuda"))
+        ref_param, tst_param, ref_optim, tst_optim = self.gen_param_optim(
+            tensors, self.options
+        )
 
         for i in range(self.iters):
             self.gen_grad(ref_param, tst_param)
@@ -125,12 +135,13 @@ class TestFusedAdam(TestFusedOptimizer):
             self.assertLessEqual(max_abs_diff, self.max_abs_diff)
             self.assertLessEqual(max_rel_diff, self.max_rel_diff)
 
-    @unittest.skip('No longer support fuse scaling')
+    @unittest.skip("No longer support fuse scaling")
     def test_scale(self):
         nelem = 278011
-        tensor = torch.rand(nelem, dtype=torch.float, device='cuda')
-        ref_param, tst_param, ref_optim, tst_optim = \
-            self.gen_param_optim([tensor], self.options)
+        tensor = torch.rand(nelem, dtype=torch.float, device="cuda")
+        ref_param, tst_param, ref_optim, tst_optim = self.gen_param_optim(
+            [tensor], self.options
+        )
 
         for i in range(self.iters):
             scale = random.random() * 1000
@@ -142,13 +153,14 @@ class TestFusedAdam(TestFusedOptimizer):
             self.assertLessEqual(max_abs_diff, self.max_abs_diff)
             self.assertLessEqual(max_rel_diff, self.max_rel_diff)
 
-    @unittest.skip('No longer support output fp16 param')
+    @unittest.skip("No longer support output fp16 param")
     def test_fp16_output(self):
         nelem = 278011
 
-        tensor = torch.rand(nelem, dtype=torch.float, device='cuda')
-        ref_param, tst_param, ref_optim, tst_optim = \
-            self.gen_param_optim([tensor], self.options)
+        tensor = torch.rand(nelem, dtype=torch.float, device="cuda")
+        ref_param, tst_param, ref_optim, tst_optim = self.gen_param_optim(
+            [tensor], self.options
+        )
 
         fp16_param = torch.nn.Parameter(tensor.clone().half())
 
@@ -161,19 +173,26 @@ class TestFusedAdam(TestFusedOptimizer):
             self.assertLessEqual(max_abs_diff, self.max_abs_diff)
             self.assertLessEqual(max_rel_diff, self.max_rel_diff)
 
-            max_abs_diff, max_rel_diff = self.get_max_diff(tst_param, \
-                [fp16_param.float()])
+            max_abs_diff, max_rel_diff = self.get_max_diff(
+                tst_param, [fp16_param.float()]
+            )
             self.assertLessEqual(max_abs_diff, self.max_abs_diff)
             self.assertLessEqual(max_rel_diff, self.max_rel_diff)
 
     def test_adam_option(self):
         nelem = 1
-        adam_option = {'lr':0.01, 'betas':(0.6, 0.9), 'eps':3e-06,
-            'weight_decay':0, 'amsgrad':False}
+        adam_option = {
+            "lr": 0.01,
+            "betas": (0.6, 0.9),
+            "eps": 3e-06,
+            "weight_decay": 0,
+            "amsgrad": False,
+        }
 
-        tensor = torch.rand(nelem, dtype=torch.float, device='cuda')
-        ref_param, tst_param, ref_optim, tst_optim = \
-            self.gen_param_optim([tensor], adam_option)
+        tensor = torch.rand(nelem, dtype=torch.float, device="cuda")
+        ref_param, tst_param, ref_optim, tst_optim = self.gen_param_optim(
+            [tensor], adam_option
+        )
 
         for i in range(self.iters):
             self.gen_grad(ref_param, tst_param)
@@ -199,13 +218,12 @@ class TestFusedAdagrad(TestFusedOptimizer):
     def test_half(self):
         self.gen_single_type_test(param_type=torch.float16)
 
-    @unittest.skipIf(torch.cuda.device_count()<2, "more than 1 GPU required")
+    @unittest.skipIf(torch.cuda.device_count() < 2, "more than 1 GPU required")
     def test_multi_device(self):
         devices = ("cuda:0", "cuda:1")
         for current_dev, tensor_dev in product(devices, devices):
             with torch.cuda.device(current_dev):
                 self.gen_single_type_test(param_type=torch.float, device=tensor_dev)
-
 
     def test_multi_params(self):
         sizes = [[4096, 1024], [4096], [4096, 2048], [32320, 1024], [1]]
@@ -226,14 +244,16 @@ class TestFusedAdagrad(TestFusedOptimizer):
             self.assertLessEqual(max_abs_diff, self.max_abs_diff)
             self.assertLessEqual(max_rel_diff, self.max_rel_diff)
 
-    @unittest.skipIf(torch.cuda.device_count()<2, "more than 1 GPU required")
+    @unittest.skipIf(torch.cuda.device_count() < 2, "more than 1 GPU required")
     def test_multi_params_different_devices_throws(self):
         sizes = [[4096, 1024], [4096], [4096, 2048], [32320, 1024], [1]]
         adagrad_option = {"lr": 5e-4, "eps": 1e-08, "weight_decay": 0}
 
         tensors = []
         for i, size in enumerate(sizes):
-            tensors.append(torch.rand(size, dtype=torch.float, device="cuda:"+str(i % 2)))
+            tensors.append(
+                torch.rand(size, dtype=torch.float, device="cuda:" + str(i % 2))
+            )
         ref_param, tst_param, ref_optim, tst_optim = self.gen_param_optim(
             tensors, adagrad_option
         )
@@ -263,7 +283,7 @@ class TestFusedAdagrad(TestFusedOptimizer):
 class TestFusedSGD(TestFusedOptimizer):
     def __init__(self, *args, **kwargs):
         super(TestFusedSGD, self).__init__(*args, **kwargs)
-        self.options = {"lr": .25, "momentum": .125}
+        self.options = {"lr": 0.25, "momentum": 0.125}
         self.ref_optim = torch.optim.SGD
         self.fused_optim = apex.optimizers.FusedSGD
 
@@ -273,12 +293,13 @@ class TestFusedSGD(TestFusedOptimizer):
     def test_half(self):
         self.gen_single_type_test(param_type=torch.float16)
 
-    @unittest.skipIf(torch.cuda.device_count()<2, "more than 1 GPU required")
+    @unittest.skipIf(torch.cuda.device_count() < 2, "more than 1 GPU required")
     def test_multi_device(self):
         devices = ("cuda:0", "cuda:1")
         for current_dev, tensor_dev in product(devices, devices):
             with torch.cuda.device(current_dev):
                 self.gen_single_type_test(param_type=torch.float, device=tensor_dev)
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     unittest.main()

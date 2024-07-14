@@ -1,3 +1,3 @@
-from .models import LSTM, GRU, ReLU, Tanh, mLSTM
+from .models import GRU, LSTM, ReLU, Tanh, mLSTM
 
-__all__ = ['models']
+__all__ = ["models"]

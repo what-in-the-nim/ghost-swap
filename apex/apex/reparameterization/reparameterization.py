@@ -1,6 +1,9 @@
+import sys
+
 import torch
 from torch.nn.parameter import Parameter
-import sys
+
+
 class Reparameterization(object):
     """
     Class interface for performing weight reparameterizations
@@ -8,10 +11,10 @@ class Reparameterization(object):
         name (str): name of weight parameter
         dim (int): dimension over which to compute the norm
         module (nn.Module): parent module to which param `name` is registered to
-        retain_forward (bool, optional): if False deletes weight on call to 
+        retain_forward (bool, optional): if False deletes weight on call to
             module.backward. Used to avoid memory leaks with DataParallel Default: True
     Attributes:
-        reparameterization_names (list, str): contains names of all parameters 
+        reparameterization_names (list, str): contains names of all parameters
             needed to compute reparameterization.
         backward_hook_key (int): torch.utils.hooks.RemovableHandle.id for hook used in module backward pass.
     """
@@ -63,7 +66,9 @@ class Reparameterization(object):
             reparameterization = Reparameterization
         module2use, name2use = Reparameterization.get_module_and_name(module, name)
         # does not work on sparse
-        if name2use is None or isinstance(module2use, (torch.nn.Embedding, torch.nn.EmbeddingBag)):
+        if name2use is None or isinstance(
+            module2use, (torch.nn.Embedding, torch.nn.EmbeddingBag)
+        ):
             return
 
         if hook_child:
@@ -108,16 +113,16 @@ class Reparameterization(object):
         """
         name2use = None
         module2use = None
-        names = name.split('.')
-        if len(names) == 1 and names[0] != '':
+        names = name.split(".")
+        if len(names) == 1 and names[0] != "":
             name2use = names[0]
             module2use = module
         elif len(names) > 1:
             module2use = module
             name2use = names[0]
-            for i in range(len(names)-1):
+            for i in range(len(names) - 1):
                 module2use = getattr(module2use, name2use)
-                name2use = names[i+1]
+                name2use = names[i + 1]
         return module2use, name2use
 
     def get_params(self, module):

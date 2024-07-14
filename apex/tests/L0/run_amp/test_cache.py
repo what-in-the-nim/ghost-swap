@@ -1,16 +1,14 @@
-import unittest
-
 import functools as ft
 import itertools as it
+import unittest
+
+import torch
+import torch.nn.functional as F
 
 from apex import amp
 from apex.amp import _amp_state
-import torch
-from torch import nn
-import torch.nn.functional as F
+from utils import common_init
 
-from utils import common_init, HALF, FLOAT,\
-    ALWAYS_HALF, ALWAYS_FLOAT, MATCH_INPUT
 
 def get_reference_grad(i, w, ops):
     # Creating new tensors ensures, among other things, that the new tensors are not in the cache.
@@ -21,10 +19,13 @@ def get_reference_grad(i, w, ops):
     loss.backward()
     return fp32_w.grad
 
+
 class WhitelistModule(torch.nn.Module):
     def __init__(self, dtype):
         super(WhitelistModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(8*8, device='cuda', dtype=dtype).view(8,8))
+        self.weight = torch.nn.Parameter(
+            torch.arange(8 * 8, device="cuda", dtype=dtype).view(8, 8)
+        )
 
     @staticmethod
     def ops(input, weight):
@@ -37,7 +38,9 @@ class WhitelistModule(torch.nn.Module):
 class BlacklistModule(torch.nn.Module):
     def __init__(self, dtype):
         super(BlacklistModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(2*8, device='cuda', dtype=dtype).view(2,8))
+        self.weight = torch.nn.Parameter(
+            torch.arange(2 * 8, device="cuda", dtype=dtype).view(2, 8)
+        )
 
     @staticmethod
     def ops(input, weight):
@@ -50,18 +53,21 @@ class BlacklistModule(torch.nn.Module):
 class PromoteModule(torch.nn.Module):
     def __init__(self, dtype):
         super(PromoteModule, self).__init__()
-        self.weight = torch.nn.Parameter(torch.arange(2*8, device='cuda', dtype=dtype).view(2,8))
+        self.weight = torch.nn.Parameter(
+            torch.arange(2 * 8, device="cuda", dtype=dtype).view(2, 8)
+        )
 
     @staticmethod
     def ops(input, weight):
-        return ((input*weight)*weight).sum()
+        return ((input * weight) * weight).sum()
 
     def forward(self, input):
         return self.ops(input, self.weight)
 
+
 class TestCache(unittest.TestCase):
     def setUp(self):
-        self.x = torch.ones((2, 8), device='cuda', dtype=torch.float32)
+        self.x = torch.ones((2, 8), device="cuda", dtype=torch.float32)
         common_init(self)
 
     def tearDown(self):
@@ -74,44 +80,52 @@ class TestCache(unittest.TestCase):
         _amp_state.allow_incoming_model_not_fp32 = True
         model, optimizer = amp.initialize(model, optimizer, opt_level="O1", verbosity=0)
         _amp_state.allow_incoming_model_not_fp32 = False
-        
+
         def training_step():
             for param in model.parameters():
                 param.grad = None
-        
+
             loss = model(self.x).sum()
             _amp_state.loss_scalers[0]._loss_scale = 4.0
             with amp.scale_loss(loss, optimizer) as scaled_loss:
                 scaled_loss.backward()
-        
-            self.assertEqual(len([p.grad for p in model.parameters() if p.grad is not None]), 1)
-            self.assertEqual(model.weight.grad.type(), model.weight.type())
-        
-            reference_grad = get_reference_grad(self.x, model.weight, model.ops)
-        
-            # Currently there's no difference in the allclose calls, so no need for branching,
-            # but I'm keeping this in case we want different tolerances for fp16 and fp32 checks. 
-            if model.weight.grad.type() == "torch.cuda.HalfTensor":
-                self.assertTrue(torch.allclose(model.weight.grad.float(), reference_grad))
-            elif model.weight.grad.type() == "torch.cuda.FloatTensor":
-                self.assertTrue(torch.allclose(model.weight.grad.float(), reference_grad))
-            else:
-                raise RuntimeError("model.weight.grad.type = {}".format(model.weight.grad.type()))
 
-            model.weight.data -= 1.
-        
+            self.assertEqual(
+                len([p.grad for p in model.parameters() if p.grad is not None]), 1
+            )
+            self.assertEqual(model.weight.grad.type(), model.weight.type())
+
+            reference_grad = get_reference_grad(self.x, model.weight, model.ops)
+
+            # Currently there's no difference in the allclose calls, so no need for branching,
+            # but I'm keeping this in case we want different tolerances for fp16 and fp32 checks.
+            if model.weight.grad.type() == "torch.cuda.HalfTensor":
+                self.assertTrue(
+                    torch.allclose(model.weight.grad.float(), reference_grad)
+                )
+            elif model.weight.grad.type() == "torch.cuda.FloatTensor":
+                self.assertTrue(
+                    torch.allclose(model.weight.grad.float(), reference_grad)
+                )
+            else:
+                raise RuntimeError(
+                    "model.weight.grad.type = {}".format(model.weight.grad.type())
+                )
+
+            model.weight.data -= 1.0
+
         # Simulates first epoch
         training_step()
-        
+
         # Simulates eval
         with torch.no_grad():
             loss = model(self.x).sum()
-        
+
         # Simulates resuming training after eval
         training_step()
 
         _amp_state.handle._deactivate()
-   
+
     # I could easily have these as a set of for loops in a single test,
     # instead of going for granularity.
     def test_whitelist_module_fp16_weight(self):
@@ -133,5 +147,5 @@ class TestCache(unittest.TestCase):
         self.train_eval_train_test(PromoteModule, torch.float32)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

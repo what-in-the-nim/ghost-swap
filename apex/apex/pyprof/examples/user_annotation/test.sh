@@ -2,16 +2,15 @@
 
 set -e
 
-SCRIPT=`realpath $0`
-SCRIPTPATH=`dirname $SCRIPT`
+SCRIPT=$(realpath $0)
+SCRIPTPATH=$(dirname $SCRIPT)
 PYPROF="$SCRIPTPATH/../.."
 
 parse="python $PYPROF/parse/parse.py"
 prof="python $PYPROF/prof/prof.py"
 
-for f in *.py
-do
-	base=`basename $f .py`
+for f in *.py; do
+	base=$(basename $f .py)
 	sql=$base.sql
 	dict=$base.dict
 
@@ -21,7 +20,7 @@ do
 
 	#Parse
 	echo $parse $sql
-	$parse $sql > $dict
+	$parse $sql >$dict
 
 	#Prof
 	echo $prof $dict
