@@ -48,6 +48,7 @@ def process_image(
             cv2.imwrite(
                 str(save_path), cv2.cvtColor(face, cv2.COLOR_RGB2BGR)
             )
+            face_idx += 1
 
 
 if __name__ == "__main__":
