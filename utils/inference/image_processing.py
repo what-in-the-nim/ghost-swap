@@ -53,7 +53,6 @@ def get_final_image(
     crop_frames: List[np.ndarray],
     full_frame: np.ndarray,
     tfm_arrays: List[np.ndarray],
-    handler,
 ) -> None:
     """
     Create final video from frames
