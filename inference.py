@@ -179,6 +179,7 @@ def inference(
         batch_size=batch_size,
     )
     if apply_super_resolution:
+        print("Applying super resolution to the final result")
         opt = TestOptions()
         model = Pix2PixModel(opt)
         model.netG.train()
