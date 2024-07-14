@@ -14,7 +14,7 @@ from scipy.spatial import distance
 from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
-from .image_processing import crop_face, normalize_and_torch_batch
+from .image_processing import normalize_and_torch_batch
 from .masks import face_mask_static
 
 from face_alignment import FaceAlignment, LandmarksType
@@ -23,7 +23,7 @@ from face_alignment import FaceAlignment, LandmarksType
 def add_audio_from_another_video(
     video_with_sound: str,
     video_without_sound: str,
-    audio_name: str,
+    audio_name: str = "audio",
     fast_cpu=True,
     gpu=False,
 ) -> None:
@@ -89,20 +89,6 @@ def get_target(full_frames: List[np.ndarray], app: Callable) -> np.ndarray:
             break
     return target
 
-def get_old_target(full_frames: List[np.ndarray], app: Callable):
-    i = 0
-    target = None
-    while target is None:
-        if i < len(full_frames):
-            try:
-                target = [crop_face(full_frames[i], app)[0]]
-            except TypeError:
-                i += 1
-        else:
-            print("Video doesn't contain face!")
-            break
-    return target
-
 
 def smooth_landmarks(kps_arr, n=2):
     kps_arr_smooth_final = []
@@ -133,7 +119,7 @@ def smooth_landmarks(kps_arr, n=2):
 
 def crop_frames_and_get_transforms(
     full_frames: List[np.ndarray],
-    target_embeds: List,
+    target_embeds: torch.Tensor,
     app: Callable,
     netArc: Callable,
     crop_size: int,
@@ -145,11 +131,11 @@ def crop_frames_and_get_transforms(
     """
 
     crop_frames = [[] for _ in range(target_embeds.shape[0])]
-    tfm_array = [[] for _ in range(target_embeds.shape[0])]
-    kps_array = [[] for _ in range(target_embeds.shape[0])]
+    transform_arrays = [[] for _ in range(target_embeds.shape[0])]
+    keypoints_arrays = [[] for _ in range(target_embeds.shape[0])]
 
     target_embeds = F.normalize(target_embeds)
-    for frame in tqdm(full_frames):
+    for frame in tqdm(full_frames, desc="Finding face in frames"):
         try:
             landmarks = app.get_landmarks(frame)
             kps = app.get_keypoints(landmarks)
@@ -170,19 +156,20 @@ def crop_frames_and_get_transforms(
                 similarity = face_embeds @ target_embeds.T
                 best_idxs = similarity.argmax(0).detach().cpu().numpy()
                 for idx, best_idx in enumerate(best_idxs):
+
                     if similarity[best_idx][idx] > similarity_th:
-                        kps_array[idx].append(kps[best_idx])
+                        keypoints_arrays[idx].append(kps[best_idx])
                     else:
-                        kps_array[idx].append([])
+                        keypoints_arrays[idx].append([])
 
             else:
-                kps_array[0].append(kps[0])
+                keypoints_arrays[0].append(kps[0])
 
         except TypeError:
             for q in range(len(target_embeds)):
-                kps_array[0].append([])
+                keypoints_arrays[0].append([])
 
-    smooth_kps = smooth_landmarks(kps_array, n=2)
+    smooth_kps = smooth_landmarks(keypoints_arrays, n=2)
 
     for i, frame in tqdm(enumerate(full_frames)):
         for q in range(len(target_embeds)):
@@ -194,32 +181,34 @@ def crop_frames_and_get_transforms(
                     frame, M, (crop_size, crop_size), borderValue=0.0
                 )
                 crop_frames[q].append(align_img)
-                tfm_array[q].append(M)
+                transform_arrays[q].append(M)
             except:
                 crop_frames[q].append([])
-                tfm_array[q].append([])
+                transform_arrays[q].append([])
 
-    # torch.cuda.empty_cache()
-    return crop_frames, tfm_array
+    return crop_frames, transform_arrays
 
 
-def resize_frames(
-    crop_frames: List[np.ndarray], new_size=(256, 256)
-) -> Tuple[List[np.ndarray], np.ndarray]:
+def resize_frames(frames: list[np.ndarray], new_size: tuple[int, int] = (256, 256)) -> tuple[list[np.ndarray], np.ndarray]:
     """
     Resize frames to new size
+    
+    Args:
+        frames: list of frames. Frame shape is (H, W, C)
+        new_size: tuple[int, int]
     """
+    resized_frames: list[np.ndarray] = []
+    present = np.ones(len(frames))
 
-    resized_frs = []
-    present = np.ones(len(crop_frames))
-
-    for i, crop_fr in tqdm(enumerate(crop_frames)):
-        try:
-            resized_frs.append(cv2.resize(crop_fr, new_size))
-        except:
-            present[i] = 0
-
-    return resized_frs, present
+    for frame_idx, frame in tqdm(enumerate(frames), total=len(frames), desc="Resizing frames"):
+        if isinstance(frame, list):
+            print(f"Frame {frame_idx} contains no face")
+            present[frame_idx] = 0
+        else:
+            resized_frame = cv2.resize(frame, new_size)
+            resized_frames.append(resized_frame)
+    print(f"Resized frames shape: {len(resized_frames)}")
+    return resized_frames, present
 
 
 def get_final_video(

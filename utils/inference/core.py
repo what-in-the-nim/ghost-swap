@@ -9,23 +9,23 @@ from .image_processing import normalize_and_torch, normalize_and_torch_batch
 from .video_processing import crop_frames_and_get_transforms, resize_frames
 
 def model_inference(
-    full_frames: List[np.ndarray],
-    source: List[np.ndarray],
-    target: List[np.ndarray],
+    full_frames: list[np.ndarray],
+    source_images: list[np.ndarray],
+    target_images: list[np.ndarray],
     netArc: Callable,
     G: Callable,
     app: Callable,
     set_target: bool,
     similarity_th=0.15,
     crop_size=224,
-    BS=60,
+    batch_size=60,
     half=False,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Using original frames get faceswaped frames and transofrmations
     """
     # Get Arcface embeddings of target image
-    target_norm = normalize_and_torch_batch(np.array(target))
+    target_norm = normalize_and_torch_batch(np.array(target_images))
     target_embeds = netArc(
         F.interpolate(
             target_norm, scale_factor=0.5, mode="bilinear", align_corners=True
@@ -45,7 +45,7 @@ def model_inference(
 
     # Normalize source images and transform to torch and get Arcface embeddings
     source_embeds = []
-    for source_curr in source:
+    for source_curr in source_images:
         source_curr = normalize_and_torch(source_curr)
         source_embeds.append(
             netArc(
@@ -56,9 +56,7 @@ def model_inference(
         )
 
     final_frames_list = []
-    for idx, (crop_frames, tfm_array, source_embed) in enumerate(
-        zip(crop_frames_list, tfm_array_list, source_embeds)
-    ):
+    for crop_frames, source_embed in zip(crop_frames_list, source_embeds):
         # Resize croped frames and get vector which shows on which frames there were faces
         resized_frs, present = resize_frames(crop_frames)
         resized_frs = np.array(resized_frs)
@@ -80,14 +78,14 @@ def model_inference(
         size = target_batch_rs.shape[0]
         model_output = []
 
-        for i in tqdm(range(0, size, BS)):
-            bs = target_batch_rs[i : i + BS].shape[0]
+        for i in tqdm(range(0, size, batch_size), desc="Inference batch size"):
+            bs = target_batch_rs[i : i + batch_size].shape[0]
 
             if bs > 1:
                 source_embed = torch.cat([source_embed] * bs)
 
             with torch.no_grad():
-                Y_st, _ = G(target_batch_rs[i : i + BS], source_embed)
+                Y_st, _ = G(target_batch_rs[i : i + batch_size], source_embed)
                 Y_st = (Y_st.permute(0, 2, 3, 1) * 0.5 + 0.5) * 255
                 Y_st = Y_st[:, :, :, [2, 1, 0]].type(torch.uint8)
                 Y_st = Y_st.cpu().detach().numpy()
@@ -99,7 +97,7 @@ def model_inference(
         final_frames = []
         idx_fs = 0
 
-        for pres in tqdm(present):
+        for pres in tqdm(present, desc="Final frames"):
             if pres == 1:
                 final_frames.append(model_output[idx_fs])
                 idx_fs += 1

@@ -1,9 +1,9 @@
-import argparse
 import os
 import time
-from typing import Sequence
+from typing import Literal, Sequence
 
 import cv2
+import numpy as np
 import torch
 
 from arcface_model.iresnet import IResNet, iresnet100
@@ -17,227 +17,309 @@ from utils.inference.video_processing import (
     add_audio_from_another_video,
     face_enhancement,
     get_final_video,
-    get_target,
     read_video,
 )
 
 
-def load_aei_net(G_path: str, backbone: str, num_blocks: int) -> AEI_Net:
+def load_aei_net(
+    G_path: str = "weights/G_unet_2blocks.pth",
+    backbone: str = "unet",
+    num_blocks: int = 2,
+) -> AEI_Net:
     G = AEI_Net(backbone, num_blocks=num_blocks, c_id=512)
     G.eval()
     G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
     return G
 
 
-def load_arcface_model() -> IResNet:
+def load_arcface_model(path: str = "arcface_model/backbone.pth") -> IResNet:
     netArc = iresnet100(fp16=False)
-    netArc.load_state_dict(
-        torch.load("arcface_model/backbone.pth", map_location=torch.device("cpu"))
-    )
+    netArc.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
     netArc.eval()
     return netArc
 
 
-def main(
+def find_first_face_in_frames(
+    face_detector: FaceDetector, frames: Sequence[np.ndarray]
+) -> np.ndarray | None:
+    """Find the first face in a list of frames."""
+    for frame in frames:
+        landmarks = face_detector.get_landmarks(frame)
+        if len(landmarks) > 0:
+            # Face(s) found in frame.
+            if len(landmarks) > 1:
+                print("Multiple faces found in the input frames, using the first face")
+            landmark = landmarks[0]
+            face = face_detector.align(frame, landmark=landmark)
+            return face
+    return None
+
+
+def inference(
     source_paths: Sequence[str],
-    target_faces_paths: Sequence[str],
-    target_video: str,
-    out_video_name: str,
-    image_to_image: bool,
-    target_image: str,
-    out_image_name: str,
-    G_path: str,
-    backbone: str,
-    num_blocks: int,
+    target_paths: Sequence[str],
+    frames: Sequence[np.ndarray],
     batch_size: int,
-    use_sr: bool,
-    similarity_th: float,
-):
-    # get crops from source images
-    print("List of source paths: ", source_paths)
-    source = []
-
-    face_cropper = FaceDetector(device="mps")
-    try:
-        for source_path in source_paths:
-            img = cv2.imread(source_path)
-            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            landmarks = face_cropper.get_landmarks(img)
-            img = face_cropper.align(img, landmark=landmarks[0])
-            source.append(img)
-    except TypeError as e:
-        print("Bad source images!", str(e))
-        exit()
-
-    # get full frames from video
-    if not image_to_image:
-        full_frames, fps = read_video(target_video)
+    apply_super_resolution: bool,
+    similarity_threshold: float,
+    device: Literal["cpu", "cuda", "mps"] = "cpu",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    # Check if all source images are valid.
+    invalid_paths = []
+    for source_path in source_paths:
+        if not os.path.exists(source_path):
+            invalid_paths.append(source_path)
+    # Raise error if all source images are invalid.
+    if len(invalid_paths) == len(source_paths):
+        invalid_paths_string = "\n- ".join(source_paths)
+        raise FileNotFoundError(
+            f"None of the source images exist. Invalid paths:\n- {invalid_paths_string}"
+        )
+    elif invalid_paths:
+        invalid_paths_string = "\n- ".join(invalid_paths)
+        print(
+            f"Some source images do not exist. Invalid paths:\n- {invalid_paths_string}"
+        )
     else:
-        target_full = cv2.imread(target_image)
-        target_full = cv2.cvtColor(target_full, cv2.COLOR_BGR2RGB)
-        full_frames = [target_full]
+        print(f"Source images are valid. Found: {len(source_paths)} images")
 
-    # get target faces that are used for swap
-    set_target = True
-    print("List of target paths: ", target_faces_paths)
-    if not target_faces_paths:
-        target = get_target(full_frames, face_cropper)
-        target = [target]
-        set_target = False
+    # Initialize face detector
+    face_detector = FaceDetector(device=device)
+
+    ######################
+    # Load source images #
+    ######################
+
+    source_images: list[np.ndarray] = []
+    for source_path in source_paths:
+        # Open image.
+        image = cv2.imread(source_path)
+        # Warn if image is invalid.
+        if image is None:
+            print(f"Bad source image: {source_path}")
+            continue
+        # Convert image to RGB.
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Align face in image.
+        landmarks = face_detector.get_landmarks(image)
+        if len(landmarks) == 0:
+            print(f"No face found in {source_path}")
+            continue
+        elif len(landmarks) > 1:
+            print(f"Multiple faces found in {source_path}, using the first face")
+        aligned_image = face_detector.align(image, landmark=landmarks[0])
+        source_images.append(aligned_image)
+
+    # Raise error if no valid source images are found.
+    if not source_images:
+        raise ValueError("None of the source images have a face or are valid")
     else:
-        target = []
-        try:
-            for target_faces_path in target_faces_paths:
-                img = cv2.imread(target_faces_path)
-                landmarks = face_cropper.get_landmarks(img)
-                img = face_cropper.align(img, landmark=landmarks[0])
-                target.append(img)
-        except TypeError:
-            print("Bad target images!")
-            exit()
+        print("Source images loaded")
 
-    netArc = load_arcface_model()
-    aei_net = load_aei_net(G_path, backbone, num_blocks)
+    ######################
+    # Load target images #
+    ######################
 
-    start = time.time()
-    final_frames_list, crop_frames_list, full_frames, tfm_array_list = model_inference(
-        full_frames,
-        source,
-        target,
-        netArc,
-        aei_net,
-        face_cropper,
-        set_target,
-        similarity_th=similarity_th,
-        BS=batch_size,
+    # Load target images if provided.
+    target_images: list[np.ndarray] = []
+    auto_target = (
+        False  # Flag to indicate that the target face is automatically selected.
     )
-    if use_sr:
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-        torch.backends.cudnn.benchmark = True
+    if target_paths:
+        for target_path in target_paths:
+            # Open image.
+            image = cv2.imread(target_path)
+            if image is None:
+                print(f"Bad target image: {target_path}")
+                continue
+            # Convert image to RGB.
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # Align face in image.
+            landmarks = face_detector.get_landmarks(image)
+            if len(landmarks) == 0:
+                print(f"No face found in {target_path}")
+                continue
+            elif len(landmarks) > 1:
+                print(f"Multiple faces found in {target_path}, using the first face")
+            aligned_image = face_detector.align(image, landmark=landmarks[0])
+            target_images.append(target_images)
+
+        # Raise error if no valid target images are found.
+        if not target_images:
+            raise ValueError("None of the target images have a face or are valid")
+        else:
+            print("Target images loaded")
+
+    # Automatically find the first face in the target video as the target if no target images are provided.
+    else:
+        auto_target = True
+        target = find_first_face_in_frames(face_detector, frames)
+        # Raise error if no face is found in the target video.
+        if target is None:
+            raise ValueError("No face found in the input frames")
+        target_images.append(target)
+        print("Target face found in the input frames")
+
+    ###############
+    # Inferencing #
+    ###############
+
+    arcface_net = load_arcface_model()
+    aei_net = load_aei_net()
+
+    final_frames, crop_frames, full_frames, transform_arrays = model_inference(
+        frames,
+        source_images,
+        target_images,
+        arcface_net,
+        aei_net,
+        face_detector,
+        not auto_target,
+        similarity_th=similarity_threshold,
+        batch_size=batch_size,
+    )
+    if apply_super_resolution:
         opt = TestOptions()
-        # opt.which_epoch ='10_7'
         model = Pix2PixModel(opt)
         model.netG.train()
-        final_frames_list = face_enhancement(final_frames_list, model)
+        final_frames = face_enhancement(final_frames, model)
 
-    if not image_to_image:
-        get_final_video(
-            final_frames_list,
-            crop_frames_list,
-            full_frames,
-            tfm_array_list,
-            out_video_name,
-            fps,
-        )
-
-        add_audio_from_another_video(target_video, out_video_name, "audio")
-        print(f"Video saved with path {out_video_name}")
-    else:
-        result = get_final_image(
-            final_frames_list, crop_frames_list, full_frames[0], tfm_array_list
-        )
-        result = cv2.cvtColor(result, cv2.COLOR_RGB2BGR)
-        cv2.imwrite(out_image_name, result)
-        print(f"Swapped Image saved with path {out_image_name}")
-
-    print("Total time: ", time.time() - start)
+    return final_frames, crop_frames, full_frames, transform_arrays
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 
-    # Generator params
-    parser.add_argument(
-        "--G_path",
-        default="weights/G_unet_2blocks.pth",
-        type=str,
-        help="Path to weights for G",
-    )
-    parser.add_argument(
-        "--backbone",
-        default="unet",
-        const="unet",
-        nargs="?",
-        choices=["unet", "linknet", "resnet"],
-        help="Backbone for attribute encoder",
-    )
-    parser.add_argument(
-        "--num_blocks", default=2, type=int, help="Numbers of AddBlocks at AddResblock"
+    parser = ArgumentParser(
+        description="Swap faces from source image to target image or video",
+        formatter_class=ArgumentDefaultsHelpFormatter,
     )
 
-    parser.add_argument("--batch_size", default=40, type=int)
     parser.add_argument(
-        "--use_sr",
-        default=False,
-        type=bool,
-        help="True for super resolution on swap images",
+        "-i",
+        "--source_paths",
+        required=True,
+        nargs="+",
+        help="Path to the source image(s) to swap the face from",
     )
     parser.add_argument(
-        "--similarity_th",
+        "-r",
+        "--reference_target_paths",
+        default=None,
+        nargs="+",
+        help="Path to the reference target image(s) to detect which face to place the source face on",
+    )
+    parser.add_argument(
+        "--batch_size", default=40, type=int, help="Batch size for inference"
+    )
+    parser.add_argument(
+        "-s",
+        "--similarity_threshold",
         default=0.15,
         type=float,
         help="Threshold for selecting a face similar to the target",
     )
-
     parser.add_argument(
-        "--source_paths",
-        default=["examples/images/mark.jpg", "examples/images/elon_musk.jpg"],
-        nargs="+",
-    )
-    parser.add_argument(
-        "--target_faces_paths",
-        default=[],
-        nargs="+",
-        help="It's necessary to set the face/faces in the video to which the source face/faces is swapped. You can skip this parametr, and then any face is selected in the target video for swap.",
-    )
-
-    # parameters for image to video
-    parser.add_argument(
-        "--target_video",
-        default="examples/videos/nggyup.mp4",
-        type=str,
-        help="It's necessary for image to video swap",
-    )
-    parser.add_argument(
-        "--out_video_name",
-        default="examples/results/result.mp4",
-        type=str,
-        help="It's necessary for image to video swap",
-    )
-
-    # parameters for image to image
-    parser.add_argument(
-        "--image_to_image",
+        "-sr",
+        "--super_resolution",
         default=False,
         type=bool,
-        help="True for image to image swap, False for swap on video",
+        help="Apply super resolution to the final result",
     )
     parser.add_argument(
+        "-d", "--device", default="cpu", type=str, help="Device to run the model on"
+    )
+
+    # Add subparsers
+    subparsers = parser.add_subparsers(dest="command", help="Sub-commands")
+
+    # Subparser for image
+    image_parser = subparsers.add_parser("image", help="Swap faces to an image")
+    image_parser.add_argument(
+        "-t",
         "--target_image",
-        default="examples/images/beckham.jpg",
         type=str,
-        help="It's necessary for image to image swap",
+        required=True,
+        help="Path to the target image to swap the face to",
     )
-    parser.add_argument(
-        "--out_image_name",
-        default="examples/results/result.png",
+    image_parser.add_argument(
+        "-o",
+        "--output_name",
         type=str,
-        help="It's necessary for image to image swap",
+        default="output.jpg",
+        help="Path to save the result image",
+    )
+
+    # Subparser for video
+    video_parser = subparsers.add_parser("video", help="Swap faces to a video")
+    video_parser.add_argument(
+        "-t",
+        "--target_video",
+        type=str,
+        required=True,
+        help="Path to the target video to swap the face to",
+    )
+    video_parser.add_argument(
+        "-o",
+        "--output_name",
+        type=str,
+        default="output.mp4",
+        help="Path to save the result video",
     )
 
     args = parser.parse_args()
-    main(
+
+    start = time.perf_counter()
+
+    # Load the target source
+    if args.command == "image":
+        # Load the target image
+        target_image = cv2.imread(args.target_image)
+        # Raise error if the target image is invalid.
+        if target_image is None:
+            raise FileNotFoundError(f"Invalid target image path: {args.target_image}")
+        # Convert image to RGB
+        target_image = cv2.cvtColor(target_image, cv2.COLOR_BGR2RGB)
+        frames = [target_image]
+    elif args.command == "video":
+        frames, fps = read_video(args.target_video)
+
+    # Run the inference
+    final_frames, crop_frames, full_frames, transform_arrays = inference(
         source_paths=args.source_paths,
-        target_faces_paths=args.target_faces_paths,
-        target_video=args.target_video,
-        out_video_name=args.out_video_name,
-        image_to_image=args.image_to_image,
-        target_image=args.target_image,
-        out_image_name=args.out_image_name,
-        G_path=args.G_path,
-        backbone=args.backbone,
-        num_blocks=args.num_blocks,
+        target_paths=args.reference_target_paths,
+        frames=frames,
         batch_size=args.batch_size,
-        use_sr=args.use_sr,
-        similarity_th=args.similarity_th,
+        apply_super_resolution=args.super_resolution,
+        similarity_threshold=args.similarity_threshold,
+        device=args.device,
     )
+
+    # Apply the result back to the video or image
+    if args.command == "image":
+        image = full_frames[0]
+        swapped_image = get_final_image(
+            final_frames, crop_frames, image, transform_arrays
+        )
+        swapped_image = cv2.cvtColor(swapped_image, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(args.output_name, swapped_image)
+
+    elif args.command == "video":
+        get_final_video(
+            final_frames,
+            crop_frames,
+            full_frames,
+            transform_arrays,
+            args.output_name,
+            fps,
+        )
+
+        add_audio_from_another_video(
+            video_with_sound=args.target_video,
+            video_without_sound=args.output_name,
+        )
+        print(f"Video saved with path {args.output_name}")
+
+    stop = time.perf_counter()
+
+    print("Total time: ", stop - start)
