@@ -6,8 +6,8 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from .faceshifter_run import faceshifter_batch
-from .image_processing import crop_face, normalize_and_torch, normalize_and_torch_batch
-from .video_processing import crop_frames_and_get_transforms, read_video, resize_frames
+from .image_processing import normalize_and_torch, normalize_and_torch_batch
+from .video_processing import crop_frames_and_get_transforms, resize_frames
 
 
 def transform_target_to_torch(resized_frs: np.ndarray, half=True) -> torch.tensor:
