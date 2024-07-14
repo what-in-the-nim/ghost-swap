@@ -187,7 +187,7 @@ def crop_frames_and_get_transforms(
                 crop_frames[q].append([])
                 tfm_array[q].append([])
 
-    torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     return crop_frames, tfm_array
 
 
@@ -257,27 +257,27 @@ def get_final_video(
 
                 swap = (
                     torch.from_numpy(swap)
-                    .cuda()
+                    # .cuda()
                     .permute(2, 0, 1)
                     .unsqueeze(0)
                     .type(torch.float32)
                 )
                 mask = (
                     torch.from_numpy(mask)
-                    .cuda()
+                    # .cuda()
                     .unsqueeze(0)
                     .unsqueeze(0)
                     .type(torch.float32)
                 )
                 full_frame = (
                     torch.from_numpy(result_frames[i])
-                    .cuda()
+                    # .cuda()
                     .permute(2, 0, 1)
                     .unsqueeze(0)
                 )
                 mat = (
                     torch.from_numpy(tfm_array[j][i])
-                    .cuda()
+                    # .cuda()
                     .unsqueeze(0)
                     .type(torch.float32)
                 )
@@ -296,7 +296,7 @@ def get_final_video(
                 )
 
                 result_frames[i] = final
-                torch.cuda.empty_cache()
+                # torch.cuda.empty_cache()
 
             except Exception as e:
                 pass
