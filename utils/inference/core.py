@@ -14,7 +14,7 @@ def transform_target_to_torch(resized_frs: np.ndarray, half=True) -> torch.tenso
     """
     Transform target, so it could be used by model
     """
-    target_batch_rs = torch.from_numpy(resized_frs.copy()).cuda()
+    target_batch_rs = torch.from_numpy(resized_frs.copy())
     target_batch_rs = target_batch_rs[:, :, :, [2, 1, 0]] / 255.0
 
     if half:
@@ -94,7 +94,7 @@ def model_inference(
         for i in tqdm(range(0, size, BS)):
             Y_st = faceshifter_batch(source_embed, target_batch_rs[i : i + BS], G)
             model_output.append(Y_st)
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         model_output = np.concatenate(model_output)
 
         # create list of final frames with transformed faces

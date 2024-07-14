@@ -32,13 +32,13 @@ def init_models(G_path: str, backbone: str, num_blocks: int, use_sr: bool) -> tu
     G = AEI_Net(backbone, num_blocks=num_blocks, c_id=512)
     G.eval()
     G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
-    G = G.cuda()
+    # G = G.cuda()
     G = G.half()
 
     # arcface model to get face embedding
     netArc = iresnet100(fp16=False)
-    netArc.load_state_dict(torch.load("arcface_model/backbone.pth"))
-    netArc = netArc.cuda()
+    netArc.load_state_dict(torch.load("arcface_model/backbone.pth", map_location=torch.device("cpu")))
+    # netArc = netArc.cuda()
     netArc.eval()
 
     # model to get face landmarks
