@@ -139,7 +139,7 @@ def main(
         print(f"Video saved with path {out_video_name}")
     else:
         result = get_final_image(
-            final_frames_list, crop_frames_list, full_frames[0], tfm_array_list, handler
+            final_frames_list, crop_frames_list, full_frames[0], tfm_array_list
         )
         cv2.imwrite(out_image_name, result)
         print(f"Swapped Image saved with path {out_image_name}")
