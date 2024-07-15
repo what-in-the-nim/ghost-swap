@@ -1,4 +1,4 @@
-from typing import Any, Callable, List, Tuple
+from typing import Callable, Literal
 
 import numpy as np
 import torch
@@ -8,19 +8,21 @@ from tqdm import tqdm
 from .image_processing import normalize_and_torch, normalize_and_torch_batch
 from .video_processing import crop_frames_and_get_transforms, resize_frames
 
+
 def model_inference(
     full_frames: list[np.ndarray],
     source_images: list[np.ndarray],
     target_images: list[np.ndarray],
     netArc: Callable,
     G: Callable,
-    app: Callable,
+    face_detector: Callable,
     set_target: bool,
-    similarity_th=0.15,
-    crop_size=224,
-    batch_size=60,
+    similarity_th: float = 0.15,
+    crop_size: int = 224,
+    batch_size: int = 60,
+    device: Literal["cuda", "cpu", "mps"] = "cpu",
     half=False,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
     Using original frames get faceswaped frames and transofrmations
     """
@@ -29,40 +31,38 @@ def model_inference(
     target_embeds = netArc(
         F.interpolate(
             target_norm, scale_factor=0.5, mode="bilinear", align_corners=True
-        )
+        ).to(device)
     )
 
     # Get the cropped faces from original frames and transformations to get those crops
     crop_frames_list, tfm_array_list = crop_frames_and_get_transforms(
         full_frames,
         target_embeds,
-        app,
+        face_detector,
         netArc,
         crop_size,
         set_target,
         similarity_th=similarity_th,
     )
+    del target_embeds
 
     # Normalize source images and transform to torch and get Arcface embeddings
     source_embeds = []
-    for source_curr in source_images:
-        source_curr = normalize_and_torch(source_curr)
-        source_embeds.append(
-            netArc(
-                F.interpolate(
-                    source_curr, scale_factor=0.5, mode="bilinear", align_corners=True
-                )
-            )
-        )
+    for source_image in source_images:
+        source_tensor = normalize_and_torch(source_image)
+        source_tensor = F.interpolate(
+            source_tensor, scale_factor=0.5, mode="bilinear", align_corners=True
+        ).to(device)
+        source_embeds.append(netArc(source_tensor))
 
     final_frames_list = []
     for crop_frames, source_embed in zip(crop_frames_list, source_embeds):
         # Resize croped frames and get vector which shows on which frames there were faces
-        resized_frs, present = resize_frames(crop_frames)
+        resized_frs, have_face = resize_frames(crop_frames)
         resized_frs = np.array(resized_frs)
 
         # transform embeds of Xs and target frames to use by model
-        target_batch_rs = torch.from_numpy(resized_frs.copy())
+        target_batch_rs = torch.from_numpy(resized_frs.copy()).to(device)
         target_batch_rs = target_batch_rs[:, :, :, [2, 1, 0]] / 255.0
 
         if half:
@@ -77,15 +77,16 @@ def model_inference(
         # run model
         size = target_batch_rs.shape[0]
         model_output = []
-
         for i in tqdm(range(0, size, batch_size), desc="Inference batch size"):
-            bs = target_batch_rs[i : i + batch_size].shape[0]
+            mini_batch = target_batch_rs[i : i + batch_size]
+            bs = mini_batch.shape[0]
 
             if bs > 1:
-                source_embed = torch.cat([source_embed] * bs)
+                source_embed_resized = torch.cat([source_embed] * bs)
 
             with torch.no_grad():
-                Y_st, _ = G(target_batch_rs[i : i + batch_size], source_embed)
+                Y_st, _ = G(mini_batch, source_embed_resized)
+                del mini_batch, source_embed_resized
                 Y_st = (Y_st.permute(0, 2, 3, 1) * 0.5 + 0.5) * 255
                 Y_st = Y_st[:, :, :, [2, 1, 0]].type(torch.uint8)
                 Y_st = Y_st.cpu().detach().numpy()
@@ -97,8 +98,8 @@ def model_inference(
         final_frames = []
         idx_fs = 0
 
-        for pres in tqdm(present, desc="Final frames"):
-            if pres == 1:
+        for contain_face in tqdm(have_face, desc="Final frames"):
+            if contain_face:
                 final_frames.append(model_output[idx_fs])
                 idx_fs += 1
             else:

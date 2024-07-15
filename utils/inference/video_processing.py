@@ -3,7 +3,6 @@ import traceback
 from typing import Any, Callable, List, Tuple
 
 import cv2
-import kornia
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -17,8 +16,6 @@ from tqdm import tqdm
 from .face_detector import FaceDetector
 from .image_processing import normalize_and_torch_batch
 from .masks import face_mask_static
-
-from face_alignment import FaceAlignment, LandmarksType
 
 
 def add_audio_from_another_video(
@@ -43,52 +40,30 @@ def add_audio_from_another_video(
     os.system(f"mv {video_without_sound[:-4]}_audio.mp4 {video_without_sound}")
 
 
-def read_video(path_to_video: str) -> Tuple[List[np.ndarray], float]:
-    """
-    Read video by frames using its path
-    """
+def read_video(path: str) -> tuple[list[np.ndarray], float]:
+    """Read video into frames and get fps"""
+    # Create the capture object.
+    cap = cv2.VideoCapture(path)
+    # Raise an error if we failed to open the video file.
+    if not cap.isOpened():
+        raise ValueError(f"Error opening video file: {path}")
+    # Get the frames per second and the total number of frames.
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frames_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
-    # load video
-    cap = cv2.VideoCapture(path_to_video)
-
-    fps, frames = cap.get(cv2.CAP_PROP_FPS), cap.get(cv2.CAP_PROP_FRAME_COUNT)
-
-    full_frames = []
-    i = 0  # current frame
-
-    while cap.isOpened():
-        if i == frames:
-            break
-
+    # Get frame by frame.
+    frames = []
+    for _ in range(frames_count):
         ret, frame = cap.read()
-
-        i += 1
-        if ret == True:
-            full_frames.append(frame)
-            p = i * 100 / frames
-        else:
+        # Stop if video is over.
+        if not ret:
             break
+        frames.append(frame)
 
+    # Release the capture object.
     cap.release()
 
-    return full_frames, fps
-
-
-def get_target(full_frames: List[np.ndarray], app: Callable) -> np.ndarray:
-    i = 0
-    target = None
-    while target is None:
-        if i < len(full_frames):
-            try:
-                landmarks = app.get_landmarks(full_frames[i])
-                target = app.align(full_frames[i], landmarks=landmarks[0])
-                # target = [crop_face(full_frames[i], app)[0]]
-            except TypeError:
-                i += 1
-        else:
-            print("Video doesn't contain face!")
-            break
-    return target
+    return frames, fps
 
 
 def smooth_landmarks(kps_arr, n=2):
@@ -147,6 +122,7 @@ def crop_frames_and_get_transforms(
                     faces.append(align_face)
 
                 face_norm = normalize_and_torch_batch(np.array(faces))
+                face_norm.to(target_embeds.device)
                 face_norm = F.interpolate(
                     face_norm, scale_factor=0.5, mode="bilinear", align_corners=True
                 )
@@ -166,7 +142,8 @@ def crop_frames_and_get_transforms(
             else:
                 keypoints_arrays[0].append(kps[0])
 
-        except TypeError:
+        except TypeError as e:
+            print("Error in frame with error", e)
             for q in range(len(target_embeds)):
                 keypoints_arrays[0].append([])
 
@@ -183,61 +160,78 @@ def crop_frames_and_get_transforms(
                 )
                 crop_frames[q].append(align_img)
                 transform_arrays[q].append(M)
-            except:
+            except Exception as e:
+                print("Error in frame", i, "and face", q, "with error", e)
                 crop_frames[q].append([])
                 transform_arrays[q].append([])
 
     return crop_frames, transform_arrays
 
 
-def resize_frames(frames: list[np.ndarray], new_size: tuple[int, int] = (256, 256)) -> tuple[list[np.ndarray], np.ndarray]:
+def resize_frames(
+    frames: list[np.ndarray], new_size: tuple[int, int] = (256, 256)
+) -> tuple[list[np.ndarray], np.ndarray]:
     """
     Resize frames to new size
-    
+
     Args:
         frames: list of frames. Frame shape is (H, W, C)
         new_size: tuple[int, int]
     """
     resized_frames: list[np.ndarray] = []
-    present = np.ones(len(frames))
+    have_face = np.ones(len(frames))
 
-    for frame_idx, frame in tqdm(enumerate(frames), total=len(frames), desc="Resizing frames"):
+    for frame_idx, frame in tqdm(
+        enumerate(frames), total=len(frames), desc="Resizing frames"
+    ):
         if isinstance(frame, list):
             print(f"Frame {frame_idx} contains no face")
-            present[frame_idx] = 0
+            have_face[frame_idx] = 0
         else:
             resized_frame = cv2.resize(frame, new_size)
             resized_frames.append(resized_frame)
-    print(f"Resized frames shape: {len(resized_frames)}")
-    return resized_frames, present
+
+    return resized_frames, have_face
 
 
 def get_final_video(
+    face_detector: FaceDetector,
     final_frames: List[np.ndarray],
     crop_frames: List[np.ndarray],
     full_frames: List[np.ndarray],
     tfm_array: List[np.ndarray],
-    OUT_VIDEO_NAME: str,
+    output_name: str,
     fps: float,
 ) -> None:
     """
     Create final video from frames
     """
-
-    out = cv2.VideoWriter(
-        f"{OUT_VIDEO_NAME}",
-        cv2.VideoWriter_fourcc(*"mp4v"),
-        fps,
-        (full_frames[0].shape[1], full_frames[0].shape[0]),
+    # Get output frame size.
+    sample_frame = full_frames[0]
+    frame_size = sample_frame.shape[1], sample_frame.shape[0]
+    # Define the codec
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    # Create the video writer object.
+    writer = cv2.VideoWriter(
+        filename=output_name,
+        fourcc=fourcc,
+        fps=fps,
+        frameSize=frame_size,
     )
-    size = (full_frames[0].shape[0], full_frames[0].shape[1])
-    params = [None for i in range(len(crop_frames))]
-    result_frames = full_frames.copy()
-    model =  FaceAlignment(LandmarksType.TWO_D, device='cpu')
 
-    for i in tqdm(range(len(full_frames))):
-        if i == len(full_frames):
-            break
+    params = [None] * len(crop_frames)
+    result_frames = full_frames.copy()
+    # debug_dir = Path("debug")
+    # debug_mask_dir = debug_dir / "mask"
+    # debug_swap_dir = debug_dir / "swap"
+    # debug_full_dir = debug_dir / "full"
+    # debug_final_dir = debug_dir / "final"
+    # debug_mask_dir.mkdir(parents=True, exist_ok=True)
+    # debug_swap_dir.mkdir(parents=True, exist_ok=True)
+    # debug_full_dir.mkdir(parents=True, exist_ok=True)
+    # debug_final_dir.mkdir(parents=True, exist_ok=True)
+
+    for i in tqdm(range(len(full_frames)), desc="Writing video"):
         for j in range(len(crop_frames)):
             try:
                 swap = cv2.resize(final_frames[j][i], (224, 224))
@@ -246,68 +240,74 @@ def get_final_video(
                     params[j] = None
                     continue
 
-
-                landmarks = model.get_landmarks(swap)
-                landmarks_tgt = model.get_landmarks(crop_frames[j][i])
+                landmarks = face_detector.get_landmarks(swap)
+                landmarks_tgt = face_detector.get_landmarks(crop_frames[j][i])
 
                 if params[j] == None:
                     mask, params[j] = face_mask_static(
                         swap, landmarks[0], landmarks_tgt[0], params[j]
                     )
                 else:
-                    mask = face_mask_static(swap, landmarks[0], landmarks_tgt[0], params[j])
+                    mask = face_mask_static(
+                        swap, landmarks[0], landmarks_tgt[0], params[j]
+                    )
 
-                swap = (
-                    torch.from_numpy(swap)
-                    # .cuda()
-                    .permute(2, 0, 1)
-                    .unsqueeze(0)
-                    .type(torch.float32)
+                # Save image for debugging
+                # cv2.imwrite(
+                #     str(debug_mask_dir / f"mask_{i}_{j}.png"),
+                #     (mask * 255).astype(np.uint8),
+                # )
+                # cv2.imwrite(
+                #     str(debug_swap_dir / f"swap_{i}_{j}.png"),
+                #     (swap * 255).astype(np.uint8),
+                # )
+                # cv2.imwrite(
+                #     str(debug_full_dir / f"full_{i}_{j}.png"),
+                #     (full_frames[i] * 255).astype(np.uint8),
+                # )
+                # print("swap", swap.shape, np.min(swap), np.max(swap))
+                # print("mask", mask.shape, np.min(mask), np.max(mask))
+                # print("full_frame", full_frames[i].shape, np.min(full_frames[i]), np.max(full_frames[i]))
+
+                # Read inputs
+                swap = swap.astype(np.float32)
+                mask = mask.astype(np.float32)
+                full_frame = result_frames[i].astype(np.float32)
+                mat = tfm_array[j][i]
+
+                # Invert the affine transformation matrix
+                mat_rev = cv2.invertAffineTransform(mat)
+
+                # Apply affine transformation using OpenCV
+                swap_t = cv2.warpAffine(
+                    swap, mat_rev, frame_size, flags=cv2.INTER_LINEAR
                 )
-                mask = (
-                    torch.from_numpy(mask)
-                    # .cuda()
-                    .unsqueeze(0)
-                    .unsqueeze(0)
-                    .type(torch.float32)
-                )
-                full_frame = (
-                    torch.from_numpy(result_frames[i])
-                    # .cuda()
-                    .permute(2, 0, 1)
-                    .unsqueeze(0)
-                )
-                mat = (
-                    torch.from_numpy(tfm_array[j][i])
-                    # .cuda()
-                    .unsqueeze(0)
-                    .type(torch.float32)
+                mask_t = cv2.warpAffine(
+                    mask, mat_rev, frame_size, flags=cv2.INTER_LINEAR
                 )
 
-                mat_rev = kornia.geometry.transform.invert_affine_transform(mat)
-                swap_t = kornia.geometry.transform.warp_affine(swap, mat_rev, size)
-                mask_t = kornia.geometry.transform.warp_affine(mask, mat_rev, size)
-                final = (
-                    (mask_t * swap_t + (1 - mask_t) * full_frame)
-                    .type(torch.uint8)
-                    .squeeze()
-                    .permute(1, 2, 0)
-                    .cpu()
-                    .detach()
-                    .numpy()
-                )
+                # Ensure mask_t has the same number of channels as swap_t
+                mask_t = mask_t[:, :, np.newaxis]
+
+                # Final composition
+                final = (mask_t * swap_t + (1 - mask_t) * full_frame).astype(np.uint8)
+
+                # # Save image for debugging
+                # cv2.imwrite(
+                #     str(debug_final_dir / f"final_{i}_{j}.png"),
+                #     (final * 255).astype(np.uint8),
+                # )
 
                 result_frames[i] = final
-                # torch.cuda.empty_cache()
 
             except Exception as e:
                 print("Error in frame", i, "and face", j)
                 print(traceback.format_exc())
                 continue
 
-        out.write(result_frames[i])
+        writer.write(result_frames[i])
 
-    out.release()
+    writer.release()
 
 
 class Frames(Dataset):

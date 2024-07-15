@@ -1,7 +1,7 @@
 import importlib
 import os
-import torch
 
+import torch
 
 
 def find_class_in_module(target_cls_name, module):

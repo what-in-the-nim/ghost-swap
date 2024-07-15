@@ -36,9 +36,7 @@ def expand_eyebrows(lmrks, eyebrows_expand_mod=1.0):
 
     # Adjust eyebrow arrays
     lmrks[[18, 19, 20, 21, 22]] = top_l + eyebrows_expand_mod * 0.5 * (top_l - bot_l)
-    lmrks[[23, 24, 25, 26, 27]] = top_r + eyebrows_expand_mod * 0.5 * (
-        top_r - bot_r
-    )
+    lmrks[[23, 24, 25, 26, 27]] = top_r + eyebrows_expand_mod * 0.5 * (top_r - bot_r)
     return lmrks
 
 
