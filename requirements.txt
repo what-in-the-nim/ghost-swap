@@ -4,9 +4,7 @@ torchvision
 opencv-python
 onnx
 onnxruntime
-scikit-image
 insightface==0.2.1
 requests
-kornia
 dill
 wandb

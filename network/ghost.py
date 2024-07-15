@@ -1,82 +1,200 @@
-print("started imports")
+import math
+from functools import reduce
+from typing import Any
 
-import argparse
-import os
-import sys
-import time
-
-import cv2
+import numpy as np
 import torch
 import torch.nn.functional as F
-import torch.optim as optim
-import torch.optim.lr_scheduler as scheduler
-import wandb
-from PIL import Image
-from torch.utils.data import DataLoader
+from pytorch_lightning import LightningModule
+from torch.optim import Adam
+from torch.optim.lr_scheduler import StepLR
 
-# custom imports
-sys.path.append("./apex/")
-
-from AdaptiveWingLoss.core import models
-from arcface_model.iresnet import iresnet100
-
-from apex import amp
-from network import AEI_Net, MultiscaleDiscriminator
-from utils.training.Dataset import FaceEmbed, FaceEmbedVGG2
-from utils.training.detector import detect_landmarks, paint_eyes
-from utils.training.image_processing import get_faceswap, make_image_list
-from loss.losses import compute_discriminator_loss, compute_generator_losses
-
-print("finished imports")
+from arcface_model import iresnet100
+from network import FAN, AEI_Net, MultiscaleDiscriminator
 
 
-def train_one_epoch(
-    G: "generator model",
-    D: "discriminator model",
-    opt_G: "generator opt",
-    opt_D: "discriminator opt",
-    scheduler_G: "scheduler G opt",
-    scheduler_D: "scheduler D opt",
-    netArc: "ArcFace model",
-    model_ft: "Landmark Detector",
-    args: "Args Namespace",
-    dataloader: torch.utils.data.DataLoader,
-    device: "torch device",
-    epoch: int,
-    loss_adv_accumulated: int,
-):
+class GhostSwap(LightningModule):
+    def __init__(
+        self,
+        arcface_path: str,
+        fan_path: str,
+        generator_lr: float,
+        discriminator_lr: float,
+        betas: tuple[float, float] = (0, 0.999),
+        weight_decay: float = 1e-4,
+        use_scheduler: bool = False,
+        scheduler_step: int = 5000,
+        scheduler_gamma: float = 0.2,
+        use_eye_detector_loss: bool = False,
+    ) -> None:
+        """Initialize the model"""
+        super().__init__()
+        self.save_hyperparameters()
+        self.automatic_optimization = False
+        # Load the face embedder model
+        arcface_state_dict = torch.load(arcface_path, map_location=torch.device("cpu"))
+        self.face_embedder = iresnet100(fp16=False)
+        self.face_embedder.load_state_dict(arcface_state_dict)
+        self.face_embedder.eval()
 
-    for iteration, data in enumerate(dataloader):
-        start_time = time.time()
+        self.generator = AEI_Net()
+        self.discriminator = MultiscaleDiscriminator()
 
-        Xs_orig, Xs, Xt, same_person = data
+        self.generator_lr = generator_lr
+        self.discriminator_lr = discriminator_lr
+        self.betas = betas
+        self.weight_decay = weight_decay
 
-        Xs_orig = Xs_orig.to(device)
-        Xs = Xs.to(device)
-        Xt = Xt.to(device)
-        same_person = same_person.to(device)
+        self.use_scheduler = use_scheduler
+        self.scheduler_step = scheduler_step
+        self.scheduler_gamma = scheduler_gamma
 
-        # get the identity embeddings of Xs
-        with torch.no_grad():
-            embed = netArc(
-                F.interpolate(Xs_orig, [112, 112], mode="bilinear", align_corners=False)
-            )
+        # Define loss
+        self.use_eye_detector_loss = use_eye_detector_loss
+        if self.use_eye_detector_loss:
+            self.eye_detector = FAN(4, "False", "False", 98)
+            checkpoint = torch.load(fan_path)
+            if "state_dict" not in checkpoint:
+                self.eye_detector.load_state_dict(checkpoint)
+            else:
+                pretrained_weights = checkpoint["state_dict"]
+                model_weights = self.eye_detector.state_dict()
+                pretrained_weights = {
+                    k: v for k, v in pretrained_weights.items() if k in model_weights
+                }
+                model_weights.update(pretrained_weights)
+                self.eye_detector.load_state_dict(model_weights)
+            self.eye_detector.eval()
+
+    def forward(
+        self, X: torch.Tensor, z_id: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Forward pass of the network"""
+        attributes = self.get_attr(X)
+        Y = self.generator(attributes, z_id)
+        return Y, attributes
+
+    @torch.no_grad()
+    def embed_face(self, X: torch.Tensor) -> torch.Tensor:
+        """Get the identity embeddings of the input image"""
+        return self.face_embedder(
+            F.interpolate(X, [112, 112], mode="bilinear", align_corners=False)
+        )
+
+    def get_attr(self, X: torch.Tensor) -> torch.Tensor:
+        """Get the attributes of the input image"""
+        return self.encoder(X)
+
+    def transform(self, point, center, scale, resolution, rotation=0, invert=False):
+        _pt = np.ones(3)
+        _pt[0] = point[0]
+        _pt[1] = point[1]
+
+        h = 200.0 * scale
+        t = np.eye(3)
+        t[0, 0] = resolution / h
+        t[1, 1] = resolution / h
+        t[0, 2] = resolution * (-center[0] / h + 0.5)
+        t[1, 2] = resolution * (-center[1] / h + 0.5)
+
+        if rotation != 0:
+            rotation = -rotation
+            r = np.eye(3)
+            ang = rotation * math.pi / 180.0
+            s = math.sin(ang)
+            c = math.cos(ang)
+            r[0][0] = c
+            r[0][1] = -s
+            r[1][0] = s
+            r[1][1] = c
+
+            t_ = np.eye(3)
+            t_[0][2] = -resolution / 2.0
+            t_[1][2] = -resolution / 2.0
+            t_inv = torch.eye(3)
+            t_inv[0][2] = resolution / 2.0
+            t_inv[1][2] = resolution / 2.0
+            t = reduce(np.matmul, [t_inv, r, t_, t])
+
+        if invert:
+            t = np.linalg.inv(t)
+        new_point = (np.matmul(t, _pt))[0:2]
+
+        return new_point.astype(int)
+
+    def get_preds_fromhm(self, heatmap, center=None, scale=None, rot=None):
+        _, idx = torch.max(
+            heatmap.view(
+                heatmap.size(0), heatmap.size(1), heatmap.size(2) * heatmap.size(3)
+            ),
+            2,
+        )
+        idx += 1
+        preds = idx.view(idx.size(0), idx.size(1), 1).repeat(1, 1, 2).float()
+        preds[..., 0].apply_(lambda x: (x - 1) % heatmap.size(3) + 1)
+        preds[..., 1].add_(-1).div_(heatmap.size(2)).floor_().add_(1)
+
+        for i in range(preds.size(0)):
+            for j in range(preds.size(1)):
+                hm_ = heatmap[i, j, :]
+                pX, pY = int(preds[i, j, 0]) - 1, int(preds[i, j, 1]) - 1
+                if pX > 0 and pX < 63 and pY > 0 and pY < 63:
+                    diff = torch.FloatTensor(
+                        [
+                            hm_[pY, pX + 1] - hm_[pY, pX - 1],
+                            hm_[pY + 1, pX] - hm_[pY - 1, pX],
+                        ]
+                    )
+                    preds[i, j].add_(diff.sign_().mul_(0.25))
+
+        preds.add_(-0.5)
+
+        preds_orig = torch.zeros(preds.size())
+        if center is not None and scale is not None:
+            for i in range(heatmap.size(0)):
+                for j in range(heatmap.size(1)):
+                    preds_orig[i, j] = self.transform(
+                        preds[i, j], center, scale, heatmap.size(2), rot, True
+                    )
+
+        return preds, preds_orig
+
+    def detect_landmarks(
+        self, image: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        mean = torch.tensor([0.5, 0.5, 0.5]).unsqueeze(1).unsqueeze(2).type_as(inputs)
+        std = torch.tensor([0.5, 0.5, 0.5]).unsqueeze(1).unsqueeze(2).type_as(inputs)
+        inputs = (std * inputs) + mean
+
+        outputs, boundary_channels = self.eye_detector(inputs)
+        pred_heatmap = outputs[-1][:, :-1, :, :].cpu()
+        pred_landmarks, _ = self.get_preds_fromhm(pred_heatmap)
+        landmarks = pred_landmarks * 4.0
+        eyes = torch.cat((landmarks[:, 96, :], landmarks[:, 97, :]), 1)
+        return eyes, pred_heatmap[:, 96, :, :], pred_heatmap[:, 97, :, :]
+
+    def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
+        """Training step for the model"""
+        Xs_orig, Xs, Xt, same_person = batch
+        # Get optimizers
+        optimizer_G, optimizer_D = self.optimizers()
+
+        # Get the identity embeddings of Xs
+        face_embeddings = self.embed_face(Xs_orig)
 
         diff_person = torch.ones_like(same_person)
 
-        if args.diff_eq_same:
-            same_person = diff_person
+        # Training Generator
+        self.toggle_optimizer(optimizer_G)
+        optimizer_G.zero_grad()
 
-        # generator training
-        opt_G.zero_grad()
+        Y, Xt_attributes = self.generator(Xt, face_embeddings)
+        Di = self.discriminator(Y)
+        ZY = self.embed_face(Y)
 
-        Y, Xt_attr = G(Xt, embed)
-        Di = D(Y)
-        ZY = netArc(F.interpolate(Y, [112, 112], mode="bilinear", align_corners=False))
-
-        if args.eye_detector_loss:
-            Xt_eyes, Xt_heatmap_left, Xt_heatmap_right = detect_landmarks(Xt, model_ft)
-            Y_eyes, Y_heatmap_left, Y_heatmap_right = detect_landmarks(Y, model_ft)
+        if self.use_eye_detector_loss:
+            Xt_eyes, Xt_heatmap_left, Xt_heatmap_right = self.detect_landmarks(Xt)
+            Y_eyes, Y_heatmap_left, Y_heatmap_right = self.detect_landmarks(Y)
             eye_heatmaps = [
                 Xt_heatmap_left,
                 Xt_heatmap_right,
@@ -91,7 +209,7 @@ def train_one_epoch(
                 G,
                 Y,
                 Xt,
-                Xt_attr,
+                Xt_attributes,
                 Di,
                 embed,
                 ZY,
@@ -103,31 +221,63 @@ def train_one_epoch(
             )
         )
 
-        with amp.scale_loss(lossG, opt_G) as scaled_loss:
-            scaled_loss.backward()
-        opt_G.step()
-        if args.scheduler:
-            scheduler_G.step()
+        self.manual_backward(lossG)
+        optimizer_G.step()
+        optimizer_G.zero_grad()
+        self.untoggle_optimizer(optimizer_G)
 
-        # discriminator training
-        opt_D.zero_grad()
+        # Training Discriminator
+        self.toggle_optimizer(optimizer_D)
+
         lossD = compute_discriminator_loss(D, Y, Xs, diff_person)
         with amp.scale_loss(lossD, opt_D) as scaled_loss:
             scaled_loss.backward()
 
         if (not args.discr_force) or (loss_adv_accumulated < 4.0):
             opt_D.step()
-        if args.scheduler:
-            scheduler_D.step()
 
-        batch_time = time.time() - start_time
+        self.manual_backward(lossD)
+        optimizer_D.step()
+        optimizer_D.zero_grad()
+        self.untoggle_optimizer(optimizer_D)
+
+        return lossG
+
+    def configure_optimizers(self) -> tuple[list[Adam], list[StepLR]]:
+        """Configure the optimizer and learning rate scheduler"""
+        optimizer_G = Adam(
+            self.generator.parameters(),
+            lr=self.generator_lr,
+            betas=self.betas,
+            weight_decay=self.weight_decay,
+        )
+        optimizer_D = Adam(
+            self.discriminator.parameters(),
+            lr=self.discriminator_lr,
+            betas=self.betas,
+            weight_decay=self.weight_decay,
+        )
+        if not self.use_scheduler:
+            return [optimizer_G, optimizer_D]
+
+        scheduler_G = StepLR(
+            optimizer_G, step_size=self.scheduler_step, gamma=self.scheduler_gamma
+        )
+        scheduler_D = StepLR(
+            optimizer_D, step_size=self.scheduler_step, gamma=self.scheduler_gamma
+        )
+        return [optimizer_G, optimizer_D], [scheduler_G, scheduler_D]
+
+    def optimizer_zero_grad(self) -> None:
+        """Zero the gradients of the optimizer"""
+        optimizer_G.zero_grad()
+        optimizer_D.zero_grad()
 
         if iteration % args.show_step == 0:
             images = [Xs, Xt, Y]
-            if args.eye_detector_loss:
-                Xt_eyes_img = paint_eyes(Xt, Xt_eyes)
-                Yt_eyes_img = paint_eyes(Y, Y_eyes)
-                images.extend([Xt_eyes_img, Yt_eyes_img])
+            Xt_eyes_img = paint_eyes(Xt, Xt_eyes)
+            Yt_eyes_img = paint_eyes(Y, Y_eyes)
+            images.extend([Xt_eyes_img, Yt_eyes_img])
             image = make_image_list(images)
             if args.use_wandb:
                 wandb.log(
@@ -257,7 +407,6 @@ def train_one_epoch(
 
 def train(args, device):
     # training params
-    batch_size = args.batch_size
     max_epoch = args.max_epoch
 
     # initializing main models
@@ -265,80 +414,6 @@ def train(args, device):
     D = MultiscaleDiscriminator(
         input_nc=3, n_layers=5, norm_layer=torch.nn.InstanceNorm2d
     ).to(device)
-    G.train()
-    D.train()
-
-    # initializing model for identity extraction
-    netArc = iresnet100(fp16=False)
-    netArc.load_state_dict(torch.load("arcface_model/backbone.pth"))
-    netArc = netArc.cuda()
-    netArc.eval()
-
-    if args.eye_detector_loss:
-        model_ft = models.FAN(4, "False", "False", 98)
-        checkpoint = torch.load("./AdaptiveWingLoss/AWL_detector/WFLW_4HG.pth")
-        if "state_dict" not in checkpoint:
-            model_ft.load_state_dict(checkpoint)
-        else:
-            pretrained_weights = checkpoint["state_dict"]
-            model_weights = model_ft.state_dict()
-            pretrained_weights = {
-                k: v for k, v in pretrained_weights.items() if k in model_weights
-            }
-            model_weights.update(pretrained_weights)
-            model_ft.load_state_dict(model_weights)
-        model_ft = model_ft.to(device)
-        model_ft.eval()
-    else:
-        model_ft = None
-
-    opt_G = optim.Adam(
-        G.parameters(), lr=args.lr_G, betas=(0, 0.999), weight_decay=1e-4
-    )
-    opt_D = optim.Adam(
-        D.parameters(), lr=args.lr_D, betas=(0, 0.999), weight_decay=1e-4
-    )
-
-    G, opt_G = amp.initialize(G, opt_G, opt_level=args.optim_level)
-    D, opt_D = amp.initialize(D, opt_D, opt_level=args.optim_level)
-
-    if args.scheduler:
-        scheduler_G = scheduler.StepLR(
-            opt_G, step_size=args.scheduler_step, gamma=args.scheduler_gamma
-        )
-        scheduler_D = scheduler.StepLR(
-            opt_D, step_size=args.scheduler_step, gamma=args.scheduler_gamma
-        )
-    else:
-        scheduler_G = None
-        scheduler_D = None
-
-    if args.pretrained:
-        try:
-            G.load_state_dict(
-                torch.load(args.G_path, map_location=torch.device("cpu")), strict=False
-            )
-            D.load_state_dict(
-                torch.load(args.D_path, map_location=torch.device("cpu")), strict=False
-            )
-            print("Loaded pretrained weights for G and D")
-        except FileNotFoundError as e:
-            print(
-                "Not found pretrained weights. Continue without any pretrained weights."
-            )
-
-    if args.vgg:
-        dataset = FaceEmbedVGG2(
-            args.dataset_path,
-            same_prob=args.same_person,
-            same_identity=args.same_identity,
-        )
-    else:
-        dataset = FaceEmbed([args.dataset_path], p_return_same_person=args.same_person)
-
-    dataloader = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=8, drop_last=True
-    )
 
     # Будем считать аккумулированный adv loss, чтобы обучать дискриминатор только когда он ниже порога, если discr_force=True
     loss_adv_accumulated = 20.0
@@ -499,12 +574,12 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    if args.vgg == False and args.same_identity == True:
+    if args.vgg is False and args.same_identity is True:
         raise ValueError(
             "Sorry, you can't use some other dataset than VGG2 Faces with param same_identity=True"
         )
 
-    if args.use_wandb == True:
+    if args.use_wandb is True:
         wandb.init(
             project=args.wandb_project,
             entity=args.wandb_entity,

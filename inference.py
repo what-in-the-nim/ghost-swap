@@ -4,12 +4,13 @@ from typing import Literal, Sequence
 
 import cv2
 import numpy as np
+from scipy.datasets import face
 import torch
 
 from arcface_model.iresnet import IResNet, iresnet100
 from models.config_sr import TestOptions
 from models.pix2pix_model import Pix2PixModel
-from network.AEI_Net import AEI_Net
+from network import AEI_Net
 from utils.inference.core import model_inference
 from utils.inference.face_detector import FaceDetector
 from utils.inference.image_processing import get_final_image
@@ -25,17 +26,20 @@ def load_aei_net(
     G_path: str = "weights/G_unet_2blocks.pth",
     backbone: str = "unet",
     num_blocks: int = 2,
+    device: Literal["cpu", "cuda", "mps"] = "cpu",
 ) -> AEI_Net:
     G = AEI_Net(backbone, num_blocks=num_blocks, c_id=512)
     G.eval()
     G.load_state_dict(torch.load(G_path, map_location=torch.device("cpu")))
+    G.to(device)
     return G
 
 
-def load_arcface_model(path: str = "arcface_model/backbone.pth") -> IResNet:
+def load_arcface_model(path: str = "arcface_model/backbone.pth", device: Literal["cpu", "cuda", "mps"] = "cpu") -> IResNet:
     netArc = iresnet100(fp16=False)
     netArc.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
     netArc.eval()
+    netArc.to(device)
     return netArc
 
 
@@ -164,8 +168,8 @@ def inference(
     # Inferencing #
     ###############
 
-    arcface_net = load_arcface_model()
-    aei_net = load_aei_net()
+    arcface_net = load_arcface_model(device=device)
+    aei_net = load_aei_net(device=device)
 
     final_frames, crop_frames, full_frames, transform_arrays = model_inference(
         frames,
@@ -177,6 +181,7 @@ def inference(
         not auto_target,
         similarity_th=similarity_threshold,
         batch_size=batch_size,
+        device=device,
     )
     if apply_super_resolution:
         print("Applying super resolution to the final result")
@@ -268,6 +273,7 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
+    print("Inference using device:", args.device)
 
     start = time.perf_counter()
 
@@ -295,17 +301,19 @@ if __name__ == "__main__":
         device=args.device,
     )
 
+    face_detector = FaceDetector(device=args.device)
     # Apply the result back to the video or image
     if args.command == "image":
         image = full_frames[0]
         swapped_image = get_final_image(
-            final_frames, crop_frames, image, transform_arrays
+            face_detector, final_frames, crop_frames, image, transform_arrays
         )
         swapped_image = cv2.cvtColor(swapped_image, cv2.COLOR_RGB2BGR)
         cv2.imwrite(args.output_name, swapped_image)
 
     elif args.command == "video":
         get_final_video(
+            face_detector,
             final_frames,
             crop_frames,
             full_frames,

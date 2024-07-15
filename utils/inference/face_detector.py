@@ -9,6 +9,7 @@ class FaceDetector(FaceAlignment):
 
     Implements additional methods for face alignment
     """
+
     def __init__(self, *args, **kwargs):
         if "face_detector" not in kwargs:
             # Set default face detector
@@ -18,7 +19,13 @@ class FaceDetector(FaceAlignment):
             kwargs["landmarks_type"] = 1  # 2D landmarks
         super().__init__(*args, **kwargs)
 
-    def align(self, image: np.ndarray, landmark: np.ndarray, chip_size: int = 224, scaling: float = 0.9) -> np.ndarray:
+    def align(
+        self,
+        image: np.ndarray,
+        landmark: np.ndarray,
+        chip_size: int = 224,
+        scaling: float = 0.9,
+    ) -> np.ndarray:
         """Align face using landmarks"""
         # Define the chip corners
         chip_corners = np.float32(
@@ -66,7 +73,9 @@ class FaceDetector(FaceAlignment):
             nose = landmark[33]
             left_corner_mouth = landmark[48]
             right_corner_mouth = landmark[54]
-            keypoints = np.array([left_eye, right_eye, nose, left_corner_mouth, right_corner_mouth])
+            keypoints = np.array(
+                [left_eye, right_eye, nose, left_corner_mouth, right_corner_mouth]
+            )
             keypoints_list.append(keypoints)
 
         return keypoints_list

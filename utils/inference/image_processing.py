@@ -4,10 +4,9 @@ import cv2
 import numpy as np
 import torch
 from insightface.utils import face_align
-from matplotlib import pyplot as plt
 
+from .face_detector import FaceDetector
 from .masks import face_mask_static
-from face_alignment import FaceAlignment, LandmarksType
 
 
 def crop_face(image_full: np.ndarray, app: Callable) -> np.ndarray:
@@ -20,7 +19,7 @@ def crop_face(image_full: np.ndarray, app: Callable) -> np.ndarray:
     return [align_img]
 
 
-def normalize_and_torch(image: np.ndarray) -> torch.tensor:
+def normalize_and_torch(image: np.ndarray) -> torch.Tensor:
     """
     Normalize image and transform to torch
     """
@@ -34,7 +33,7 @@ def normalize_and_torch(image: np.ndarray) -> torch.tensor:
     return image
 
 
-def normalize_and_torch_batch(frames: np.ndarray) -> torch.tensor:
+def normalize_and_torch_batch(frames: np.ndarray) -> torch.Tensor:
     """
     Normalize batch images and transform to torch
     """
@@ -49,6 +48,7 @@ def normalize_and_torch_batch(frames: np.ndarray) -> torch.tensor:
 
 
 def get_final_image(
+    face_detector: FaceDetector,
     final_frames: List[np.ndarray],
     crop_frames: List[np.ndarray],
     full_frame: np.ndarray,
@@ -63,10 +63,8 @@ def get_final_image(
     for i in range(len(final_frames)):
         frame = cv2.resize(final_frames[i][0], (224, 224))
 
-        model =  FaceAlignment(LandmarksType.TWO_D, device='cpu')
-
-        landmarks = model.get_landmarks(frame)
-        landmarks_tgt = model.get_landmarks(crop_frames[i][0])
+        landmarks = face_detector.get_landmarks(frame)
+        landmarks_tgt = face_detector.get_landmarks(crop_frames[i][0])
 
         mask, _ = face_mask_static(
             crop_frames[i][0], landmarks[0], landmarks_tgt[0], params[i]
@@ -87,4 +85,3 @@ def get_final_image(
         final = mask_t * swap_t + (1 - mask_t) * final
     final = np.array(final, dtype="uint8")
     return final
-
