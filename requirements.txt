@@ -7,4 +7,5 @@ onnxruntime
 insightface==0.2.1
 requests
 dill
+pytorch-lightning
 wandb
