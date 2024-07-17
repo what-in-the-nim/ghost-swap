@@ -4,8 +4,8 @@ from typing import Literal, Sequence
 
 import cv2
 import numpy as np
-from scipy.datasets import face
 import torch
+from scipy.datasets import face
 
 from arcface_model.iresnet import IResNet, iresnet100
 from models.config_sr import TestOptions
@@ -35,7 +35,10 @@ def load_aei_net(
     return G
 
 
-def load_arcface_model(path: str = "arcface_model/backbone.pth", device: Literal["cpu", "cuda", "mps"] = "cpu") -> IResNet:
+def load_arcface_model(
+    path: str = "arcface_model/backbone.pth",
+    device: Literal["cpu", "cuda", "mps"] = "cpu",
+) -> IResNet:
     netArc = iresnet100(fp16=False)
     netArc.load_state_dict(torch.load(path, map_location=torch.device("cpu")))
     netArc.eval()

@@ -45,9 +45,8 @@ def process_image(
             face = detector.align(image, landmark, crop_size)
             save_filename = path.stem + f"_{face_idx}.jpg"
             save_path = output_dir / save_filename
-            cv2.imwrite(
-                str(save_path), cv2.cvtColor(face, cv2.COLOR_RGB2BGR)
-            )
+            bgr_face = cv2.cvtColor(face, cv2.COLOR_RGB2BGR)
+            cv2.imwrite(str(save_path), bgr_face)
             face_idx += 1
 
 

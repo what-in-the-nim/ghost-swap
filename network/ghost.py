@@ -10,6 +10,8 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import StepLR
 
 from arcface_model import iresnet100
+from loss.discriminator_loss import compute_discriminator_loss
+from loss.generator_loss import compute_generator_losses
 from network import FAN, AEI_Net, MultiscaleDiscriminator
 
 
@@ -229,9 +231,10 @@ class GhostSwap(LightningModule):
         # Training Discriminator
         self.toggle_optimizer(optimizer_D)
 
-        lossD = compute_discriminator_loss(D, Y, Xs, diff_person)
-        with amp.scale_loss(lossD, opt_D) as scaled_loss:
-            scaled_loss.backward()
+        fake_D = self.discriminator(Y)
+        true_D = self.discriminator(Xs)
+
+        lossD = compute_discriminator_loss(fakeD, trueD diff_person)
 
         if (not args.discr_force) or (loss_adv_accumulated < 4.0):
             opt_D.step()
