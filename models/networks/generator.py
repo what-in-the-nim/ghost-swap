@@ -246,11 +246,6 @@ class HiFaceGANGenerator(SPADEGenerator):
     def forward(self, input):
         xs = self.nested_encode(input)
         x = self.encode(input)
-        """
-        print([_x.shape for _x in xs])
-        print(x.shape)
-        print(self.head_0)
-        """
         x = self.head_0(x, xs[0])
 
         x = self.up(x)

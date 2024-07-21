@@ -112,10 +112,6 @@ class AADGenerator(nn.Module):
 
     def forward(self, z_id, z_att):
         x = self.convt(z_id.unsqueeze(-1).unsqueeze(-1))
-        print("convt", x.shape)
-        print("len z_att", len(z_att))
-        print("z_att", z_att[0].shape)
-        print("z_id", z_id.shape)
 
         for i in range(7):
             x = self.upsample(self.model[f"layer_{i}"](x, z_att[i], z_id))

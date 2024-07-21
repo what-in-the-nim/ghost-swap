@@ -57,7 +57,6 @@ class Ghost(pl.LightningModule):
         z_id = self.embedder.embed_faces(faces)
         z_id = torch.from_numpy(np.vstack(z_id)).type_as(inputs)
         z_id = F.normalize(z_id)
-        print("z_id", z_id.shape)
         return z_id
 
     def forward(
