@@ -46,5 +46,5 @@ class GhostDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
-            persistent_workers=True
+            persistent_workers=True,
         )

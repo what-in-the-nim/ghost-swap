@@ -3,11 +3,11 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 import numpy as np
+import torch
 from insightface.app import FaceAnalysis
 from insightface.model_zoo import ArcFaceONNX
 from insightface.utils import face_align
 from onnxruntime import InferenceSession
-import torch
 
 FILE_DIR = op.dirname(__file__)
 

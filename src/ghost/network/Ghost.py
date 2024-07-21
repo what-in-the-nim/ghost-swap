@@ -1,17 +1,17 @@
 from typing import Any
 
+import numpy as np
 import pytorch_lightning as pl
 import torch
 import torch.nn.functional as F
 import torchvision
 from torch.optim import Optimizer
-import numpy as np
 
+from ..image_processor.face import FaceProcessor
 from ..loss import AEILoss, EyeLoss, GANLoss
 from .AADGenerator import AADGenerator
 from .MultiLevelAttributesEncoder import MultiLevelAttributesEncoder
 from .MultiScaleDiscriminator import MultiScaleDiscriminator
-from ..image_processor.face import FaceProcessor
 
 
 class Ghost(pl.LightningModule):
@@ -44,7 +44,7 @@ class Ghost(pl.LightningModule):
         self.aei_loss = AEILoss()
         self.eye_loss = EyeLoss()
         self.eye_penalty_weight = eye_penalty_weight
-
+        self.eye_loss.eval()
 
     def embed_faces(self, inputs: torch.Tensor) -> torch.Tensor:
         """Embeds the faces using the ArcFace model."""
@@ -107,6 +107,13 @@ class Ghost(pl.LightningModule):
         )
 
         loss_G = loss_E_G + loss_GAN
+
+        if self.eye_penalty_weight != 0:
+            loss_G_eye = self.eye_loss(source_img, output) * self.eye_penalty_weight
+            loss_G += loss_G_eye
+            self.logger.experiment.add_scalar(
+                "Eye Loss", loss_G_eye.item(), self.global_step
+            )
 
         self.manual_backward(loss_G)
         optimizer_G.step()
