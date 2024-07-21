@@ -22,7 +22,13 @@ class EyeLoss(nn.Module):
         if not op.exists(CHECKPOINT_PATH):
             raise FileNotFoundError("WFLW_4HG.pth not found in the weights directory")
         checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu")
-        self.model.load_state_dict(checkpoint)
+
+        pretrained_weights = checkpoint['state_dict']
+        model_weights = self.model.state_dict()
+        pretrained_weights = {k: v for k, v in pretrained_weights.items() \
+                                if k in model_weights}
+        model_weights.update(pretrained_weights)
+        self.model.load_state_dict(model_weights)
 
         self.model.eval()
         self.mean = torch.tensor([[[0.5]], [[0.5]], [[0.5]]])

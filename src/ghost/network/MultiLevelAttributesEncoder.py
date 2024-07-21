@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class MultilevelAttributesEncoder(nn.Module):
+class MultiLevelAttributesEncoder(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.encoder_channel = [3, 32, 64, 128, 256, 512, 1024, 1024]
@@ -45,16 +45,20 @@ class MultilevelAttributesEncoder(nn.Module):
         self.Upsample = nn.UpsamplingBilinear2d(scale_factor=2)
 
     def forward(self, x: torch.Tensor) -> list[torch.Tensor]:
+        print("input", x.shape)
         arr_x = []
         for i in range(7):
             x = self.encoder[f"layer_{i}"](x)
             arr_x.append(x)
+
+            print(f"encoder layer_{i}", x.shape)
 
         arr_y = []
         arr_y.append(arr_x[6])
         y = arr_x[6]
         for i in range(6):
             y = self.decoder[f"layer_{i}"](y)
+            print("y", y.shape)
             y = torch.cat((y, arr_x[5 - i]), 1)
             arr_y.append(y)
 

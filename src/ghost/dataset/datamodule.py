@@ -3,6 +3,7 @@ from typing import Callable, Optional
 from PIL import Image
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
+from torchvision import transforms
 
 from .dataset import GhostDataset
 
@@ -28,7 +29,7 @@ class GhostDataModule(LightningDataModule):
             self.train_dataset = GhostDataset(
                 self.train_image_dir, self.augmentation_transform
             )
-            self.val_dataset = GhostDataset(self.val_image_dir)
+            self.val_dataset = GhostDataset(self.val_image_dir, transforms.ToTensor())
 
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
@@ -36,7 +37,7 @@ class GhostDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=True,
-            drop_last=True,
+            persistent_workers=True,
         )
 
     def val_dataloader(self) -> DataLoader:
@@ -45,5 +46,5 @@ class GhostDataModule(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             shuffle=False,
-            drop_last=False,
+            persistent_workers=True
         )

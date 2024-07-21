@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 
 
-class MultiscaleDiscriminator(nn.Module):
+class MultiScaleDiscriminator(nn.Module):
     def __init__(
         self,
         input_nc: int,

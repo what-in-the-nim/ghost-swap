@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--crop_size",
         type=int,
-        default=224,
+        default=256,
         help="Size of cropped face",
     )
     parser.add_argument(

@@ -85,3 +85,26 @@ def get_final_image(
         final = mask_t * swap_t + (1 - mask_t) * final
     final = np.array(final, dtype="uint8")
     return final
+def smooth_landmarks(kps_arr, n = 2):
+    kps_arr_smooth_final = []
+    for ka in kps_arr:
+        kps_arr_s = [[ka[0]]]
+        for i in range(1, len(ka)):
+            if (len(ka[i])==0) or (len(ka[i-1])==0):
+                kps_arr_s.append([ka[i]])
+            elif (distance.euclidean(ka[i][0], ka[i-1][0]) > 5) or (distance.euclidean(ka[i][2], ka[i-1][2]) > 5):
+                kps_arr_s.append([ka[i]])
+            else:
+                kps_arr_s[-1].append(ka[i])
+
+        kps_arr_smooth = []
+
+        for a in kps_arr_s:
+            a_smooth = []
+            for i in range(len(a)):
+                q = min(i-0, len(a)-i-1, n)      
+                a_smooth.append(np.mean( np.array(a[i-q:i+1+q]), axis=0 ) )
+
+            kps_arr_smooth += a_smooth
+        kps_arr_smooth_final.append(kps_arr_smooth)      
+    return kps_arr_smooth_final

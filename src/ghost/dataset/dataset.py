@@ -18,7 +18,7 @@ class GhostDataset(Dataset):
         image_dir: Path = Path(image_dir)
 
         # Find all image files in the directory
-        self.files = list(image_dir.glob("*.[jpg,png,jpeg]"))
+        self.files = list(image_dir.glob("*.jpg")) + list(image_dir.glob("*.png"))
         self.augmentation_transform = augmentation_transform
         self.p_same_person = p_same_person
 

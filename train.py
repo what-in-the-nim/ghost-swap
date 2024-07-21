@@ -17,7 +17,6 @@ def main(args):
     )
 
     model = Ghost(
-        arcface_ckpt_path=args.arcface_ckpt_path,
         arcface_vector_size=args.arcface_vector_size,
         learning_rate_E_G=args.learning_rate_E_G,
         learning_rate_D=args.learning_rate_D,
@@ -32,17 +31,16 @@ def main(args):
         augmentation_transform=transform,
     )
     checkpoint_callback = ModelCheckpoint(
-        filepath=args.checkpoint_dir,
-        monitor="val_loss",
+        dirpath=args.checkpoint_dir,
+        monitor="Validation Loss",
         verbose=True,
         save_top_k=args.save_top_k,
     )
 
     trainer = Trainer(
         logger=TensorBoardLogger(args.checkpoint_dir),
-        checkpoint_callback=checkpoint_callback,
+        callbacks=[checkpoint_callback],
         accelerator=args.accelerator,
-        gradient_clip_val=args.gradient_clip_val,
         val_check_interval=args.val_interval,
         max_epochs=args.max_epochs,
     )
@@ -66,14 +64,9 @@ if __name__ == "__main__":
         help="Directory containing validation images",
     )
     parser.add_argument(
-        "arcface_ckpt_path",
-        type=str,
-        help="Path to ArcFace checkpoint",
-    )
-    parser.add_argument(
         "--arcface_vector_size",
         type=int,
-        default=256,
+        default=512,
         help="Size of ArcFace output vector",
     )
     parser.add_argument(
@@ -129,12 +122,6 @@ if __name__ == "__main__":
         type=str,
         default="ddp",
         help="Training accelerator",
-    )
-    parser.add_argument(
-        "--gradient_clip_val",
-        type=float,
-        default=1.0,
-        help="Gradient clipping value",
     )
     parser.add_argument(
         "--val_interval",

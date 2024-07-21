@@ -5,19 +5,19 @@ import torch
 import torch.nn.functional as F
 import torchvision
 from torch.optim import Optimizer
-from torchvision.models import resnet101
+import numpy as np
 
 from ..loss import AEILoss, EyeLoss, GANLoss
-from .AADGenerator import ADDGenerator
-from .MultiLevelAttributesEncoder import MultilevelAttributesEncoder
-from .MultiScaleDiscriminator import MultiscaleDiscriminator
+from .AADGenerator import AADGenerator
+from .MultiLevelAttributesEncoder import MultiLevelAttributesEncoder
+from .MultiScaleDiscriminator import MultiScaleDiscriminator
+from ..image_processor.face import FaceProcessor
 
 
 class Ghost(pl.LightningModule):
     def __init__(
         self,
-        arcface_ckpt_path: str,
-        arcface_vector_size: int = 256,
+        arcface_vector_size: int = 512,
         learning_rate_E_G: float = 0.0004,
         learning_rate_D: float = 0.0004,
         eye_penalty_weight: float = 0.0,
@@ -30,46 +30,54 @@ class Ghost(pl.LightningModule):
         self.learning_rate_E_G = learning_rate_E_G
         self.learning_rate_D = learning_rate_D
 
-        self.G = ADDGenerator(arcface_vector_size)
-        self.E = MultilevelAttributesEncoder()
-        self.D = MultiscaleDiscriminator(input_nc=input_nc)
-
-        self.Z = resnet101(num_classes=256)
-        self.Z.load_state_dict(torch.load(arcface_ckpt_path, map_location="cpu"))
+        self.G = AADGenerator(arcface_vector_size)
+        self.E = MultiLevelAttributesEncoder()
+        self.D = MultiScaleDiscriminator(input_nc=input_nc)
 
         self.G.train()
         self.E.train()
         self.D.train()
-        self.Z.eval()
+
+        self.embedder = FaceProcessor()
 
         self.gan_loss = GANLoss()
         self.aei_loss = AEILoss()
         self.eye_loss = EyeLoss()
+        self.eye_penalty_weight = eye_penalty_weight
 
-    def embed_face(self, face: torch.Tensor) -> torch.Tensor:
-        return self.Z(F.interpolate(face, size=112, mode="bilinear"))
+
+    def embed_faces(self, inputs: torch.Tensor) -> torch.Tensor:
+        """Embeds the faces using the ArcFace model."""
+        inputs_clone = inputs.clone().detach().cpu().numpy()
+        # Convert the input to 0-255 and int8
+        inputs_clone = (inputs_clone * 255).astype("uint8")
+        # Permute the dimensions to (N, C, H, W)
+        inputs_clone = inputs_clone.transpose(0, 2, 3, 1)
+        faces = [inputs_clone[i] for i in range(inputs_clone.shape[0])]
+        z_id = self.embedder.embed_faces(faces)
+        z_id = torch.from_numpy(np.vstack(z_id)).type_as(inputs)
+        z_id = F.normalize(z_id)
+        print("z_id", z_id.shape)
+        return z_id
 
     def forward(
         self, target_img: torch.Tensor, source_img: torch.Tensor
     ) -> torch.Tensor:
         # Embed source image
-        z_id = self.embed_face(source_img)
-        z_id = F.normalize(z_id)
-        z_id = z_id.detach()
+        source_embedding = self.embed_faces(source_img)
 
         # Encode target image
         feature_map = self.E(target_img)
 
         # Generate output image
-        output = self.G(z_id, feature_map)
+        output: torch.Tensor = self.G(source_embedding, feature_map)
 
         # Embed output image
-        output_z_id = self.embed_face(output)
-        output_z_id = F.normalize(output_z_id)
+        output_z_id = self.embed_faces(output)
 
         # Encode output image
         output_feature_map = self.E(output)
-        return output, z_id, output_z_id, feature_map, output_feature_map
+        return output, source_embedding, output_z_id, feature_map, output_feature_map
 
     def training_step(self, batch, batch_idx: int) -> torch.Tensor:
         target_img, source_img, same = batch

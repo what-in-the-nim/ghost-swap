@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 class ADD(nn.Module):
     def __init__(
-        self, h_inchannel: int, z_inchannel: int, z_id_size: int = 256
+        self, h_inchannel: int, z_inchannel: int, z_id_size: int = 512
     ) -> None:
         super().__init__()
 
@@ -88,7 +88,7 @@ class ADDResBlock(nn.Module):
         return x1 + x2
 
 
-class ADDGenerator(nn.Module):
+class AADGenerator(nn.Module):
     def __init__(self, z_id_size: int) -> None:
         super().__init__()
 
@@ -112,6 +112,10 @@ class ADDGenerator(nn.Module):
 
     def forward(self, z_id, z_att):
         x = self.convt(z_id.unsqueeze(-1).unsqueeze(-1))
+        print("convt", x.shape)
+        print("len z_att", len(z_att))
+        print("z_att", z_att[0].shape)
+        print("z_id", z_id.shape)
 
         for i in range(7):
             x = self.upsample(self.model[f"layer_{i}"](x, z_att[i], z_id))

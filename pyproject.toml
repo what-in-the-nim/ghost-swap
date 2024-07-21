@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghost"
+version = "0.1.0"
+description = "A project for training the Ghost model using PyTorch Lightning"
+readme = "README.md"
+dependencies = [
+    "numpy<2.0",
+    "torch",
+    "torchvision",
+    "opencv-python",
+    "onnx",
+    "onnxruntime",
+    "insightface",
+    "pytorch-lightning",
+    "tensorboard",
+    "wandb"
+]
