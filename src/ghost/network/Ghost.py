@@ -7,7 +7,7 @@ import torch.nn.functional as F
 import torchvision
 from torch.optim import Optimizer
 
-from ..image_processor.face import FaceProcessor
+from ..processor.face import FaceProcessor
 from ..loss import AEILoss, EyeLoss, GANLoss
 from .AADGenerator import AADGenerator
 from .MultiLevelAttributesEncoder import MultiLevelAttributesEncoder

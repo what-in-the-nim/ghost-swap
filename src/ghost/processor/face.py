@@ -7,6 +7,7 @@ import torch
 from insightface.app import FaceAnalysis
 from insightface.model_zoo import ArcFaceONNX
 from insightface.utils import face_align
+import cv2
 from onnxruntime import InferenceSession
 
 FILE_DIR = op.dirname(__file__)
@@ -40,6 +41,7 @@ class FaceAttributes:
     bbox: np.ndarray
     keypoint: np.ndarray
     landmark: np.ndarray
+    transform: np.ndarray
     confidence: float
 
     @property
@@ -49,6 +51,10 @@ class FaceAttributes:
     def __str__(self) -> str:
         gender = "female" if self.is_female else "male"
         return f"FaceInfo(gender={gender}, age{self.age}, confidence={self.confidence:.2f})"
+
+    @property
+    def inverse_transform(self) -> np.ndarray:
+        return cv2.invertAffineTransform(self.transform)
 
 
 class FaceProcessor:
@@ -84,6 +90,7 @@ class FaceProcessor:
                 bbox=face.bbox,
                 keypoint=face.kps,
                 landmark=face.landmark_2d_106,
+                transform=face_align.estimate_norm(face.kps, 256),
                 confidence=face.det_score,
             )
             for face in faces

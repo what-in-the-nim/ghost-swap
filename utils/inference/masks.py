@@ -4,39 +4,19 @@ import numpy as np
 
 def expand_eyebrows(lmrks, eyebrows_expand_mod=1.0):
 
-    lmrks = np.array(lmrks.copy(), dtype=np.int32)
+    lmrks = np.array( lmrks.copy(), dtype=np.int32 )
 
     # Top of the eye arrays
-    bot_l = lmrks[[37, 38, 39, 40]]
-    bot_r = lmrks[[43, 44, 45, 46]]
-
-    # Extrapolate to five points
-    bot_l = np.array(
-        [
-            2 * bot_l[0] - bot_l[1],
-            bot_l[0],
-            bot_l[1],
-            bot_l[2],
-            2 * bot_l[3] - bot_l[2],
-        ]
-    )
-    bot_r = np.array(
-        [
-            2 * bot_r[0] - bot_r[1],
-            bot_r[0],
-            bot_r[1],
-            bot_r[2],
-            2 * bot_r[3] - bot_r[2],
-        ]
-    )
+    bot_l = lmrks[[35, 41, 40, 42, 39]]
+    bot_r = lmrks[[89, 95, 94, 96, 93]]
 
     # Eyebrow arrays
-    top_l = lmrks[[18, 19, 20, 21, 22]]
-    top_r = lmrks[[23, 24, 25, 26, 27]]
+    top_l = lmrks[[43, 48, 49, 51, 50]]
+    top_r = lmrks[[102, 103, 104, 105, 101]]
 
     # Adjust eyebrow arrays
-    lmrks[[18, 19, 20, 21, 22]] = top_l + eyebrows_expand_mod * 0.5 * (top_l - bot_l)
-    lmrks[[23, 24, 25, 26, 27]] = top_r + eyebrows_expand_mod * 0.5 * (top_r - bot_r)
+    lmrks[[43, 48, 49, 51, 50]] = top_l + eyebrows_expand_mod * 0.5 * (top_l - bot_l)
+    lmrks[[102, 103, 104, 105, 101]] = top_r + eyebrows_expand_mod * 0.5 * (top_r - bot_r)
     return lmrks
 
 
