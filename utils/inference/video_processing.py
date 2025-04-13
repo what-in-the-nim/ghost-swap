@@ -16,6 +16,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
 import kornia
+import shutil
 
 
 def add_audio_from_another_video(video_with_sound: str, 
@@ -30,8 +31,15 @@ def add_audio_from_another_video(video_with_sound: str,
     gpu_cmd = "-c:v h264_nvenc" if gpu else ""
     os.system(f"ffmpeg -v -8 -i {video_with_sound} -vn -vcodec h264_nvenc ./examples/audio/{audio_name}.m4a")
     os.system(f"ffmpeg -v -8 -i {video_without_sound} -i ./examples/audio/{audio_name}.m4a {fast_cmd} {gpu_cmd}{video_without_sound[:-4]}_audio.mp4 -y")
-    os.system(f"rm -rf ./examples/audio/{audio_name}.m4a")
-    os.system(f"mv {video_without_sound[:-4]}_audio.mp4 {video_without_sound}")
+    
+    # Cross-platform file delete and move
+    audio_file_path = f"./examples/audio/{audio_name}.m4a"
+    if os.path.exists(audio_file_path):
+        os.remove(audio_file_path)
+
+    output_with_audio = f"{video_without_sound[:-4]}_audio.mp4"
+    if os.path.exists(output_with_audio):
+        shutil.move(output_with_audio, video_without_sound)
     
     
 def read_video(path_to_video: str) -> Tuple[List[np.ndarray], float]:
